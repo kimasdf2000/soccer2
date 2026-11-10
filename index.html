@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>FIFA WORLD CUP 3D - Tablet & Web Edition</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- 3D WebGL Viewport Container -->
+    <div id="game-container"></div>
+
+    <!-- Top Broadcast HUD -->
+    <header id="top-hud">
+      <!-- FIFA Broadcast Scorebug -->
+      <div class="scorebug">
+        <div class="sb-half" id="hud-half">1ST</div>
+        <div class="sb-clock" id="hud-clock">00:00</div>
+        <div class="sb-team">
+          <span class="sb-color" id="hud-home-color"></span>
+          <span class="sb-name" id="hud-home-name">🇰🇷 KOR</span>
+          <span class="sb-cards" id="hud-home-cards"></span>
+        </div>
+        <div class="sb-score">
+          <span id="hud-home-score">0</span>
+          <span class="sb-sep">:</span>
+          <span id="hud-away-score">0</span>
+        </div>
+        <div class="sb-team">
+          <span class="sb-name" id="hud-away-name">BRA 🇧🇷</span>
+          <span class="sb-color" id="hud-away-color"></span>
+          <span class="sb-cards" id="hud-away-cards"></span>
+        </div>
+      </div>
+
+      <!-- Referee & Official Ball Live Status Pill -->
+      <div class="status-pills">
+        <div class="pill ball-pill" id="hud-ball-name" title="터치하여 월드컵 공인구 즉시 변경">
+          ⚽ 알 리흘라 (Al Rihla)
+        </div>
+        <div class="pill ref-pill" id="hud-ref-status">
+          👨‍⚖️ 심판 추적 거리: 11.0m
+        </div>
+      </div>
+
+      <!-- Tablet Quick Test & Director Toolbar -->
+      <div class="quick-toolbar">
+        <button class="q-btn q-ball" id="btn-quick-ball" title="월드컵 공인구 즉시 변경">
+          ⚽ 공인구 변경
+        </button>
+        <button class="q-btn q-fk" id="btn-quick-fk" title="프리킥 즉시 체험">
+          🎯 프리킥
+        </button>
+        <button class="q-btn q-pk" id="btn-quick-pk" title="페널티킥 즉시 체험">
+          🥅 페널티킥
+        </button>
+        <button class="q-btn q-yc" id="btn-quick-yc" title="파울 및 심판 옐로카드 선언 연출">
+          🟨 파울·옐로
+        </button>
+        <button class="q-btn q-rc" id="btn-quick-rc" title="심판 레드카드 선언 및 퇴장 연출">
+          🟥 레드카드
+        </button>
+        <button class="q-btn" id="btn-quick-cam" title="카메라 시점 전환">
+          🎥 중계뷰
+        </button>
+        <button class="q-btn" id="btn-open-lobby" title="팀·공인구·인원 설정">
+          ⚙️ 설정
+        </button>
+        <button class="q-btn" id="btn-fullscreen" title="태블릿 전체화면">
+          ⛶
+        </button>
+      </div>
+    </header>
+
+    <!-- Center Broadcast Event Banner (GOAL / FOUL / YELLOW CARD / RED CARD / FREE KICK / PENALTY) -->
+    <div id="broadcast-banner" class="broadcast-banner hidden">
+      <div class="banner-title" id="banner-title">⚽ GOAL!!</div>
+      <div class="banner-sub" id="banner-sub">대한민국 환상적인 득점!</div>
+    </div>
+
+    <!-- Set-Piece Curve & Elevation Control Panel (Shown during Free Kick / Penalty Kick) -->
+    <div id="setpiece-panel" class="setpiece-panel hidden">
+      <div class="sp-header" id="setpiece-panel-title">
+        🎯 프리킥 궤적 & 감아차기 설정 (좌측 조이스틱으로 방향 조준 후 우측 슛!)
+      </div>
+      <div class="sp-controls">
+        <div class="sp-row">
+          <label>🌀 스핀(커브):</label>
+          <input
+            type="range"
+            id="setpiece-spin-slider"
+            min="-1.5"
+            max="1.5"
+            step="0.05"
+            value="-0.65"
+          />
+          <span id="setpiece-spin-val" class="sp-val">좌측 감아차기 (0.7x)</span>
+        </div>
+        <div class="sp-row">
+          <label>📐 탄도 높낮이:</label>
+          <input
+            type="range"
+            id="setpiece-loft-slider"
+            min="0.25"
+            max="1.0"
+            step="0.05"
+            value="0.6"
+          />
+          <div class="sp-preset-btns">
+            <button type="button" class="sp-chip" data-spin="-1.15">↩️ 강커브</button>
+            <button type="button" class="sp-chip" data-spin="0">⚡ 무회전</button>
+            <button type="button" class="sp-chip" data-spin="1.15">↪️ 역커브</button>
+          </div>
+        </div>
+        <div class="sp-row">
+          <label>🎯 코너 조준:</label>
+          <div class="sp-preset-btns">
+            <button type="button" class="sp-corner" data-corner="TL">↖ 좌상단 사각</button>
+            <button type="button" class="sp-corner" data-corner="BL">↙ 좌하단 구석</button>
+            <button type="button" class="sp-corner" data-corner="TR">↗ 우상단 사각</button>
+            <button type="button" class="sp-corner" data-corner="BR">↘ 우하단 구석</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Goalkeeper Penalty Dive Choice Panel (Shown when Defending a Penalty Kick) -->
+    <div id="pk-dive-panel" class="setpiece-panel hidden">
+      <div class="sp-header">🧤 상대 팀 페널티킥! 골키퍼 다이빙 방향을 미리 선택하세요!</div>
+      <div class="pk-dive-btns">
+        <button type="button" class="dive-btn" data-dive="-1">⬅️ 좌측 다이빙</button>
+        <button type="button" class="dive-btn active" data-dive="0">⬆️ 중앙 대기</button>
+        <button type="button" class="dive-btn" data-dive="1">➡️ 우측 다이빙</button>
+      </div>
+    </div>
+
+    <!-- Shot Power Charging Gauge -->
+    <div id="shot-power-wrap" class="shot-power-wrap hidden">
+      <div class="shot-power-label">SHOT POWER</div>
+      <div class="shot-power-bar">
+        <div id="shot-power-fill" class="shot-power-fill"></div>
+      </div>
+    </div>
+
+    <!-- Bottom Tablet Touch Controls + 2D Radar Minimap -->
+    <div id="bottom-hud">
+      <!-- Left: 360° Virtual Touch Joystick -->
+      <div id="joystick-zone" class="joystick-zone">
+        <div id="joystick-base" class="joystick-base">
+          <div class="joy-arrows">
+            <span class="ja-up">▲</span>
+            <span class="ja-down">▼</span>
+            <span class="ja-left">◀</span>
+            <span class="ja-right">▶</span>
+          </div>
+          <div id="joystick-stick" class="joystick-stick"></div>
+        </div>
+        <div class="joy-hint">이동 / 조준 (WASD·터치)</div>
+      </div>
+
+      <!-- Center: 2D Pitch Radar Minimap -->
+      <div class="radar-wrap">
+        <canvas id="radar-canvas" width="210" height="136"></canvas>
+        <div class="radar-legend">
+          <span><i class="dot dot-ref"></i>심판(REF)</span>
+          <span><i class="dot dot-ball"></i>월드컵공</span>
+          <span><i class="dot dot-yc"></i>경고보유</span>
+        </div>
+      </div>
+
+      <!-- Right: FIFA Mobile Diamond Action Pad -->
+      <div class="action-pad">
+        <button id="btn-through" class="action-btn btn-through">
+          <span class="btn-icon">⚡</span>
+          <span class="btn-title">스루 패스</span>
+          <span class="btn-sub">공간 침투</span>
+        </button>
+        <button id="btn-shoot" class="action-btn btn-shoot">
+          <span class="btn-icon">⚽</span>
+          <span class="btn-title">슛 (SHOOT)</span>
+          <span class="btn-sub">길게 눌러 파워</span>
+        </button>
+        <button id="btn-pass" class="action-btn btn-pass">
+          <span class="btn-icon">👟</span>
+          <span class="btn-title">패스 (PASS)</span>
+          <span class="btn-sub">짧은 연결</span>
+        </button>
+        <button id="btn-sprint" class="action-btn btn-sprint">
+          <span class="btn-icon">🔥</span>
+          <span class="btn-title">질주 (SPRINT)</span>
+          <span class="btn-sub">홀드 가속</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Pre-Match / Settings Lobby Modal (World Cup Ball Selector + Team & Size Selector) -->
+    <div id="lobby-modal" class="lobby-modal">
+      <div class="lobby-card">
+        <div class="lobby-header">
+          <div>
+            <span class="lobby-badge">FIFA WORLD CUP 3D • TABLET & WEB EDITION</span>
+            <h1>⚽ 3D 월드컵 축구 매치 센터</h1>
+            <p>
+              월드컵 공인구, 심판 원거리 추적 AI, 옐로/레드카드 파울 시스템, 프리킥·페널티킥 세트피스가 모두 탑재되었습니다.
+            </p>
+          </div>
+          <button id="btn-close-lobby" class="lobby-close-btn" title="닫기">✕</button>
+        </div>
+
+        <div class="lobby-grid">
+          <!-- Team Selection & Format -->
+          <div class="lobby-section">
+            <h3>1. 국가대표 팀 & 인원수 선택</h3>
+            <div class="team-select-row">
+              <div class="team-box">
+                <label>내 팀 (HOME)</label>
+                <select id="select-home-team">
+                  <option value="KOR" selected>🇰🇷 대한민국 (KOREA)</option>
+                  <option value="BRA">🇧🇷 브라질 (BRAZIL)</option>
+                  <option value="ARG">🇦🇷 아르헨티나 (ARGENTINA)</option>
+                  <option value="FRA">🇫🇷 프랑스 (FRANCE)</option>
+                  <option value="ENG">🏴󠁧󠁢󠁥󠁮󠁧󠁿 잉글랜드 (ENGLAND)</option>
+                  <option value="GER">🇩🇪 독일 (GERMANY)</option>
+                </select>
+              </div>
+              <div class="vs-badge">VS</div>
+              <div class="team-box">
+                <label>상대 팀 (AWAY)</label>
+                <select id="select-away-team">
+                  <option value="KOR">🇰🇷 대한민국 (KOREA)</option>
+                  <option value="BRA" selected>🇧🇷 브라질 (BRAZIL)</option>
+                  <option value="ARG">🇦🇷 아르헨티나 (ARGENTINA)</option>
+                  <option value="FRA">🇫🇷 프랑스 (FRANCE)</option>
+                  <option value="ENG">🏴󠁧󠁢󠁥󠁮󠁧󠁿 잉글랜드 (ENGLAND)</option>
+                  <option value="GER">🇩🇪 독일 (GERMANY)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="format-row">
+              <label>경기 인원 구성 (태블릿 추천: 7 vs 7)</label>
+              <div class="segmented-group" id="team-size-group">
+                <button type="button" class="seg-btn" data-size="5">5 vs 5 (스피드)</button>
+                <button type="button" class="seg-btn active" data-size="7">7 vs 7 (태블릿 추천 ★)</button>
+                <button type="button" class="seg-btn" data-size="11">11 vs 11 (정규 매치)</button>
+              </div>
+            </div>
+
+            <div class="rules-summary">
+              <div>👨‍⚖️ <b>심판 AI</b>: 플레이를 방해하지 않게 10~13m 거리에서 추적하며 파울 시 달려와 카드 선언</div>
+              <div>🟨🟥 <b>파울·카드 규칙</b>: 거친 태클 시 파울 선언 (경고 2회 누적 또는 백태클 시 레드카드 실제 퇴장)</div>
+              <div>🎯🥅 <b>프리킥·페널티킥</b>: 박스 밖 파울 시 수비벽 프리킥, 박스 안 파울 시 1:1 페널티킥 돌입</div>
+            </div>
+          </div>
+
+          <!-- World Cup Official Match Ball Selector (5 Iconic Balls) -->
+          <div class="lobby-section">
+            <h3>2. 월드컵 공인구 선택 (구종별 물리·스핀 특성 적용)</h3>
+            <div id="ball-selector-grid" class="ball-selector-grid"></div>
+          </div>
+        </div>
+
+        <div class="lobby-footer">
+          <button id="btn-start-match" class="start-match-btn">
+            ⚽ KICK OFF! 경기 시작하기
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
