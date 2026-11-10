@@ -1,6 +1,6 @@
 import { Game } from './Game';
 import { WORLD_CUP_BALLS, WorldCupBall } from './entities/WorldCupBall';
-import { WorldCupBallId } from './types';
+import { GameMode, WorldCupBallId } from './types';
 
 const BALL_ORDER: WorldCupBallId[] = [
   'al_rihla',
@@ -16,6 +16,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   let selectedBallId: WorldCupBallId = 'al_rihla';
   let selectedTeamSize: 5 | 7 | 11 = 7;
+  let selectedGameMode: GameMode = 'EXHIBITION';
 
   // 1. Render World Cup Official Ball Selector Cards with 2D Spherical Previews
   const ballGrid = document.getElementById('ball-selector-grid')!;
@@ -33,7 +34,6 @@ window.addEventListener('DOMContentLoaded', () => {
       const ctx = canvas.getContext('2d')!;
       WorldCupBall.paintTexturePattern(ctx, 112, 112, ballId);
 
-      // Add spherical shading highlight
       const grad = ctx.createRadialGradient(34, 32, 8, 56, 56, 56);
       grad.addColorStop(0, 'rgba(255,255,255,0.35)');
       grad.addColorStop(0.65, 'rgba(0,0,0,0.0)');
@@ -66,7 +66,17 @@ window.addEventListener('DOMContentLoaded', () => {
   };
   renderBallCards();
 
-  // 2. Team Size Segmented Selector
+  // 2. Game Mode Selector (Exhibition / Tournament / Penalty Shootout / Free Kick Challenge)
+  const modeGroup = document.getElementById('game-mode-group')!;
+  modeGroup.querySelectorAll('.mode-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      modeGroup.querySelectorAll('.mode-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedGameMode = ((btn as HTMLElement).dataset.mode || 'EXHIBITION') as GameMode;
+    });
+  });
+
+  // 3. Team Size Segmented Selector
   const sizeGroup = document.getElementById('team-size-group')!;
   sizeGroup.querySelectorAll('.seg-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -77,7 +87,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 3. Lobby Modal Open / Close / Start Match
+  // 4. Lobby Modal Open / Close / Start Match
   const lobbyModal = document.getElementById('lobby-modal')!;
   const closeLobby = () => {
     game.audio.unlock();
@@ -101,13 +111,14 @@ window.addEventListener('DOMContentLoaded', () => {
       awayTeamId: awayId,
       teamSize: selectedTeamSize,
       ballId: selectedBallId,
-      halfDurationSec: 180
+      halfDurationSec: 180,
+      gameMode: selectedGameMode
     });
     lobbyModal.classList.add('hidden');
     game.audio.playWhistle('short');
   });
 
-  // 4. Quick Toolbar Actions (Instant Ball Cycle, Free Kick, Penalty Kick, Yellow/Red Card Demo, Camera, Fullscreen)
+  // 5. Quick Toolbar Actions
   const cycleBall = () => {
     game.audio.unlock();
     const idx = BALL_ORDER.indexOf(game.ball.currentBallId);
@@ -128,6 +139,10 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-quick-ball')?.addEventListener('click', cycleBall);
   document.getElementById('hud-ball-name')?.addEventListener('click', cycleBall);
 
+  document.getElementById('hud-mode-status')?.addEventListener('click', () => {
+    game.cycleTacticalStance();
+  });
+
   document.getElementById('btn-quick-fk')?.addEventListener('click', () => {
     game.audio.unlock();
     lobbyModal.classList.add('hidden');
@@ -146,16 +161,50 @@ window.addEventListener('DOMContentLoaded', () => {
     game.triggerInstantPenaltyKick('HOME');
   });
 
+  document.getElementById('btn-quick-ck')?.addEventListener('click', () => {
+    game.audio.unlock();
+    lobbyModal.classList.add('hidden');
+    game.triggerInstantCornerKick();
+  });
+
   document.getElementById('btn-quick-yc')?.addEventListener('click', () => {
     game.audio.unlock();
     lobbyModal.classList.add('hidden');
-    game.triggerInstantFoulCardDemo(false);
+    game.triggerInstantFoulCardDemo(false, false);
   });
 
   document.getElementById('btn-quick-rc')?.addEventListener('click', () => {
     game.audio.unlock();
     lobbyModal.classList.add('hidden');
-    game.triggerInstantFoulCardDemo(true);
+    game.triggerInstantFoulCardDemo(true, false);
+  });
+
+  document.getElementById('btn-quick-var')?.addEventListener('click', () => {
+    game.audio.unlock();
+    lobbyModal.classList.add('hidden');
+    game.triggerInstantFoulCardDemo(false, true);
+  });
+
+  document.getElementById('btn-quick-sub')?.addEventListener('click', () => {
+    game.audio.unlock();
+    lobbyModal.classList.add('hidden');
+    game.substituteTiredPlayer();
+  });
+
+  document.getElementById('btn-quick-next-round')?.addEventListener('click', () => {
+    game.audio.unlock();
+    lobbyModal.classList.add('hidden');
+    game.advanceTournamentStage();
+  });
+
+  const ttsBtn = document.getElementById('btn-quick-tts');
+  ttsBtn?.addEventListener('click', () => {
+    const on = game.commentary.toggleTTS();
+    ttsBtn.textContent = on ? '🎙️ 음성해설 ON' : '🎙️ 음성해설 OFF';
+  });
+
+  document.getElementById('btn-skip-replay')?.addEventListener('click', () => {
+    game.controls.triggerPass = true;
   });
 
   const camBtn = document.getElementById('btn-quick-cam');
@@ -177,7 +226,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // 5. Set-piece Spin Chip Presets & GK Penalty Dive Buttons
+  // 6. Set-piece Spin Chip Presets, Corner Target Presets & GK Penalty Dive Buttons
   document.querySelectorAll('.sp-chip').forEach((chip) => {
     chip.addEventListener('click', () => {
       const spin = parseFloat((chip as HTMLElement).dataset.spin || '0');

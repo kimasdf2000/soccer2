@@ -17,14 +17,121 @@ export class Stadium {
   private crowdBaseMatrices: THREE.Matrix4[] = [];
   private goalExcitementTimer: number = 0;
 
+  // Vanishing Spray, Offside Laser Line, Free Kick Challenge Target Rings & World Cup Trophy
+  private sprayGroup: THREE.Group;
+  private sprayBallRing: THREE.Mesh;
+  private sprayWallLine: THREE.Mesh;
+  private sprayTimer: number = 0;
+
+  private offsideLineMesh: THREE.Mesh;
+  private offsideTimer: number = 0;
+
+  public challengeRingsGroup: THREE.Group;
+  public trophyGroup: THREE.Group;
+
   constructor(scene: THREE.Scene) {
     this.group = new THREE.Group();
+    this.sprayGroup = new THREE.Group();
+    this.challengeRingsGroup = new THREE.Group();
+    this.trophyGroup = new THREE.Group();
+
     this.buildPitch();
     this.buildGoals();
     this.buildCornerFlags();
     this.buildAdBoardsAndStands();
     this.buildFloodlights();
+
+    // 1. Vanishing Spray Foam Meshes
+    const foamMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.92
+    });
+    const ringGeo = new THREE.RingGeometry(0.65, 0.85, 24);
+    ringGeo.rotateX(-Math.PI / 2);
+    this.sprayBallRing = new THREE.Mesh(ringGeo, foamMat);
+    this.sprayBallRing.position.y = 0.04;
+
+    const wallLineGeo = new THREE.PlaneGeometry(4.2, 0.24);
+    wallLineGeo.rotateX(-Math.PI / 2);
+    this.sprayWallLine = new THREE.Mesh(wallLineGeo, foamMat);
+    this.sprayWallLine.position.y = 0.04;
+
+    this.sprayGroup.add(this.sprayBallRing, this.sprayWallLine);
+    this.sprayGroup.visible = false;
+    this.group.add(this.sprayGroup);
+
+    // 2. Broadcast Offside Laser Line
+    const offGeo = new THREE.PlaneGeometry(0.32, Stadium.HALF_WIDTH * 2);
+    offGeo.rotateX(-Math.PI / 2);
+    const offMat = new THREE.MeshBasicMaterial({
+      color: 0xff1744,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85
+    });
+    this.offsideLineMesh = new THREE.Mesh(offGeo, offMat);
+    this.offsideLineMesh.position.y = 0.05;
+    this.offsideLineMesh.visible = false;
+    this.group.add(this.offsideLineMesh);
+
+    // 3. Free Kick Challenge Bonus Target Rings inside Right Goal (+X = 52)
+    const createTargetRing = (z: number, y: number, colorHex: number, radius: number) => {
+      const rMesh = new THREE.Mesh(
+        new THREE.RingGeometry(radius * 0.72, radius, 28),
+        new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide })
+      );
+      rMesh.rotation.y = Math.PI / 2;
+      rMesh.position.set(Stadium.HALF_LENGTH - 0.1, y, z);
+      this.challengeRingsGroup.add(rMesh);
+    };
+    createTargetRing(-3.8, 2.55, 0xffea00, 1.05); // Top Left (+250 PT)
+    createTargetRing(3.8, 2.55, 0xffea00, 1.05);  // Top Right (+250 PT)
+    createTargetRing(-3.8, 1.0, 0x00e5ff, 0.95);  // Bottom Left (+150 PT)
+    createTargetRing(3.8, 1.0, 0x00e5ff, 0.95);   // Bottom Right (+150 PT)
+    this.challengeRingsGroup.visible = false;
+    this.group.add(this.challengeRingsGroup);
+
+    // 4. 3D Golden FIFA World Cup Trophy Podium at Center Circle
+    const podium = new THREE.Mesh(
+      new THREE.CylinderGeometry(3.2, 3.6, 0.5, 24),
+      new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.5 })
+    );
+    podium.position.y = 0.25;
+    const goldMat = new THREE.MeshStandardMaterial({
+      color: 0xffd700,
+      metalness: 0.85,
+      roughness: 0.18
+    });
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.65, 1.2, 16), goldMat);
+    base.position.y = 1.1;
+    const globe = new THREE.Mesh(new THREE.SphereGeometry(0.62, 24, 24), goldMat);
+    globe.position.y = 2.05;
+    this.trophyGroup.add(podium, base, globe);
+    this.trophyGroup.visible = false;
+    this.group.add(this.trophyGroup);
+
     scene.add(this.group);
+  }
+
+  public showVanishingSpray(ballPos: THREE.Vector3, wallCenter: THREE.Vector3, yawAngle: number): void {
+    this.sprayGroup.visible = true;
+    this.sprayTimer = 14.0;
+    this.sprayBallRing.position.set(ballPos.x, 0.04, ballPos.z);
+    this.sprayWallLine.position.set(wallCenter.x, 0.04, wallCenter.z);
+    this.sprayWallLine.rotation.z = yawAngle;
+  }
+
+  public clearVanishingSpray(): void {
+    this.sprayGroup.visible = false;
+    this.sprayTimer = 0;
+  }
+
+  public showOffsideLaser(xPos: number, duration: number = 3.0): void {
+    this.offsideLineMesh.position.set(xPos, 0.05, 0);
+    this.offsideLineMesh.visible = true;
+    this.offsideTimer = duration;
   }
 
   public triggerGoalCrowdCelebration(): void {
@@ -32,6 +139,18 @@ export class Stadium {
   }
 
   public update(dt: number): void {
+    if (this.sprayTimer > 0) {
+      this.sprayTimer = Math.max(0, this.sprayTimer - dt);
+      if (this.sprayTimer <= 0) this.sprayGroup.visible = false;
+    }
+    if (this.offsideTimer > 0) {
+      this.offsideTimer = Math.max(0, this.offsideTimer - dt);
+      if (this.offsideTimer <= 0) this.offsideLineMesh.visible = false;
+    }
+    if (this.trophyGroup.visible) {
+      this.trophyGroup.rotation.y += dt * 1.2;
+    }
+
     if (this.goalExcitementTimer > 0) {
       this.goalExcitementTimer = Math.max(0, this.goalExcitementTimer - dt);
       const t = performance.now() * 0.015;

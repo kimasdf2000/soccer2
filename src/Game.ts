@@ -3,17 +3,21 @@ import {
   CameraMode,
   CardType,
   FoulDecision,
+  GameMode,
   MatchSettings,
   MatchState,
-  TeamConfig,
-  WorldCupBallId
+  TacticalStance,
+  TeamConfig
 } from './types';
 import { AudioSystem } from './systems/AudioSystem';
 import { TouchController } from './systems/TouchController';
+import { CommentarySystem } from './systems/CommentarySystem';
+import { ReplaySystem } from './systems/ReplaySystem';
 import { WorldCupBall, WORLD_CUP_BALLS } from './entities/WorldCupBall';
 import { Stadium } from './entities/Stadium';
-import { Player, PlayerRole, TEAMS } from './entities/Player';
+import { Player, TEAMS } from './entities/Player';
 import { Referee } from './entities/Referee';
+import { Linesman } from './entities/Linesman';
 
 export class Game {
   private container: HTMLElement;
@@ -23,9 +27,14 @@ export class Game {
 
   public audio: AudioSystem;
   public controls: TouchController;
+  public commentary: CommentarySystem;
+  public replay: ReplaySystem;
+
   public stadium: Stadium;
   public ball: WorldCupBall;
   public referee: Referee;
+  public northLinesman: Linesman;
+  public southLinesman: Linesman;
 
   public players: Player[] = [];
   public homePlayers: Player[] = [];
@@ -35,6 +44,8 @@ export class Game {
   public homeTeam: TeamConfig = TEAMS.KOR;
   public awayTeam: TeamConfig = TEAMS.BRA;
   public teamSize: 5 | 7 | 11 = 7;
+  public gameMode: GameMode = 'EXHIBITION';
+  public tacticalStance: TacticalStance = 'BALANCED';
 
   public matchState: MatchState = 'KICKOFF';
   public cameraMode: CameraMode = 'BROADCAST';
@@ -48,7 +59,22 @@ export class Game {
 
   public half: 1 | 2 = 1;
   public matchClockSec: number = 0;
-  public halfDurationSec: number = 180; // 3 minutes real time = 45 FIFA mins
+  public halfDurationSec: number = 180;
+
+  // Tournament State (8강 -> 4강 -> 결승 -> 우승!)
+  public tournamentRound: 1 | 2 | 3 = 1; // 1=8강(QF), 2=4강(SF), 3=결승(FINAL)
+  private tournamentOpponents: string[] = ['BRA', 'FRA', 'ARG'];
+
+  // Penalty Shootout Mode State
+  public shootoutRound: number = 1;
+  public shootoutIsUserTurn: boolean = true;
+  public shootoutHomeResults: ('O' | 'X')[] = [];
+  public shootoutAwayResults: ('O' | 'X')[] = [];
+
+  // Free Kick Challenge Mode State
+  public fkChallengeStage: number = 1;
+  public fkChallengeScore: number = 0;
+  public fkChallengeBest: number = 0;
 
   // Set-piece & Foul state
   public activeFoul: FoulDecision | null = null;
@@ -58,11 +84,18 @@ export class Game {
 
   private setPieceKicker: Player | null = null;
   private setPieceTeam: 'HOME' | 'AWAY' = 'HOME';
-  private setPieceAimYaw: number = 0; // Horizontal angle offset
-  private setPieceAimY: number = 1.8; // Target height at goal
-  private setPieceAimZ: number = 0;   // Target Z on goal line
+  private setPieceAimYaw: number = 0;
+  private setPieceAimY: number = 1.8;
+  private setPieceAimZ: number = 0;
   private aiSetPieceTimer: number = 0;
-  private userPenaltyDiveChoice: number = 0; // -1 left, 0 center, 1 right
+  private userPenaltyDiveChoice: number = 0;
+
+  // Offside tracking on pass
+  private pendingOffsideReceiverId: string | null = null;
+  private pendingOffsideLineX: number = 0;
+
+  // Bench substitution index
+  private benchIndex: number = 0;
 
   // Camera smoothing vectors
   private camPosTarget: THREE.Vector3 = new THREE.Vector3(0, 26, 38);
@@ -79,6 +112,8 @@ export class Game {
     this.container = container;
     this.audio = new AudioSystem();
     this.controls = new TouchController();
+    this.commentary = new CommentarySystem();
+    this.replay = new ReplaySystem();
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0b1528);
@@ -104,19 +139,21 @@ export class Game {
     this.stadium = new Stadium(this.scene);
     this.ball = new WorldCupBall(this.scene, 'al_rihla');
     this.referee = new Referee(this.scene);
+    this.northLinesman = new Linesman(this.scene, 'NORTH');
+    this.southLinesman = new Linesman(this.scene, 'SOUTH');
 
     this.radarCanvas = document.getElementById('radar-canvas') as HTMLCanvasElement;
     this.radarCtx = this.radarCanvas.getContext('2d')!;
 
     window.addEventListener('resize', () => this.onResize());
 
-    // Build default teams so the 3D stadium is alive behind the lobby
     this.startNewMatch({
       homeTeamId: 'KOR',
       awayTeamId: 'BRA',
       teamSize: 7,
       ballId: 'al_rihla',
-      halfDurationSec: 180
+      halfDurationSec: 180,
+      gameMode: 'EXHIBITION'
     });
 
     this.animate();
@@ -143,11 +180,25 @@ export class Game {
 
   public startNewMatch(settings: MatchSettings): void {
     this.homeTeam = TEAMS[settings.homeTeamId] || TEAMS.KOR;
-    this.awayTeam = TEAMS[settings.awayTeamId] || TEAMS.BRA;
+    this.gameMode = settings.gameMode || 'EXHIBITION';
     this.teamSize = settings.teamSize;
     this.halfDurationSec = settings.halfDurationSec;
+    this.benchIndex = 0;
+
+    if (this.gameMode === 'TOURNAMENT') {
+      this.tournamentRound = 1;
+      const pool = Object.keys(TEAMS).filter((id) => id !== this.homeTeam.id);
+      this.tournamentOpponents = pool.slice(0, 3);
+      this.awayTeam = TEAMS[this.tournamentOpponents[0]] || TEAMS.BRA;
+    } else {
+      this.awayTeam = TEAMS[settings.awayTeamId] || TEAMS.BRA;
+    }
 
     this.ball.setBallStyle(settings.ballId);
+    this.ball.windForce.set(0, 0, 0);
+    this.stadium.challengeRingsGroup.visible = this.gameMode === 'FREE_KICK_CHALLENGE';
+    this.stadium.trophyGroup.visible = false;
+    this.stadium.clearVanishingSpray();
 
     this.homeScore = 0;
     this.awayScore = 0;
@@ -159,12 +210,64 @@ export class Game {
     this.matchClockSec = 0;
 
     this.spawnTeams(this.teamSize);
-    this.setupKickoff('HOME');
+
+    if (this.gameMode === 'PENALTY_SHOOTOUT') {
+      this.shootoutRound = 1;
+      this.shootoutIsUserTurn = true;
+      this.shootoutHomeResults = [];
+      this.shootoutAwayResults = [];
+      this.commentary.announce('월드컵 승부차기 대결이 시작됩니다! 첫 번째 키커가 준비합니다.', 'high');
+      this.enterPenaltySetup('HOME');
+    } else if (this.gameMode === 'FREE_KICK_CHALLENGE') {
+      this.fkChallengeStage = 1;
+      this.fkChallengeScore = 0;
+      this.setupNextFreeKickChallengeStage();
+    } else {
+      this.setupKickoff('HOME');
+      if (this.gameMode === 'TOURNAMENT') {
+        this.commentary.announce(
+          `월드컵 8강전! ${this.homeTeam.name} 대 ${this.awayTeam.name}의 경기가 시작됩니다!`,
+          'high'
+        );
+      } else {
+        this.commentary.announce(
+          `${this.homeTeam.name} 대 ${this.awayTeam.name}, 월드컵 매치 킥오프합니다!`,
+          'normal'
+        );
+      }
+    }
+
     this.updateScoreboardHUD();
+    this.updateModeSpecificHUD();
+  }
+
+  private setupNextFreeKickChallengeStage(): void {
+    const stages: { x: number; z: number; windZ: number; windLabel: string }[] = [
+      { x: 30, z: 0, windZ: 0, windLabel: '무풍 (0.0m/s)' },
+      { x: 28, z: 9.5, windZ: -2.4, windLabel: '북풍 2.4m/s (좌측 바람)' },
+      { x: 27, z: -10.5, windZ: 3.1, windLabel: '남풍 3.1m/s (우측 바람)' },
+      { x: 24, z: 13.0, windZ: -4.2, windLabel: '강풍 4.2m/s (강한 좌측 바람)' },
+      { x: 22, z: -12.0, windZ: 4.8, windLabel: '돌풍 4.8m/s (최고 난이도!)' }
+    ];
+    const st = stages[(this.fkChallengeStage - 1) % stages.length];
+    this.ball.windForce.set(0, 0, st.windZ);
+    this.stadium.challengeRingsGroup.visible = true;
+
+    this.showBanner(
+      `🎯 프리킥 챌린지 STAGE ${this.fkChallengeStage}/5`,
+      `💨 바람: ${st.windLabel} • 골대 안 타겟 링을 맞히면 보너스 점수!`,
+      'banner-setpiece',
+      2.5
+    );
+    this.commentary.announce(
+      `프리킥 챌린지 스테이지 ${this.fkChallengeStage}! 바람은 ${st.windLabel}입니다. 골문 구석 타겟을 노려보세요!`,
+      'normal'
+    );
+    this.enterFreeKickSetup('HOME', new THREE.Vector3(st.x, 0, st.z));
+    this.updateModeSpecificHUD();
   }
 
   private spawnTeams(size: 5 | 7 | 11): void {
-    // Clear existing player meshes
     for (const p of this.players) {
       this.scene.remove(p.group);
     }
@@ -172,49 +275,48 @@ export class Game {
     this.homePlayers = [];
     this.awayPlayers = [];
 
-    const formations: Record<5 | 7 | 11, { role: PlayerRole; x: number; z: number; num: number }[]> = {
+    const positions: Record<5 | 7 | 11, { x: number; z: number; rosterIdx: number }[]> = {
       5: [
-        { role: 'GK', x: -49.5, z: 0, num: 1 },
-        { role: 'DF', x: -30, z: -10, num: 4 },
-        { role: 'DF', x: -30, z: 10, num: 5 },
-        { role: 'MF', x: -16, z: 0, num: 10 },
-        { role: 'FW', x: -6, z: 0, num: 7 }
+        { x: -49.5, z: 0, rosterIdx: 0 },
+        { x: -30, z: -10, rosterIdx: 1 },
+        { x: -30, z: 10, rosterIdx: 3 },
+        { x: -16, z: 0, rosterIdx: 6 },
+        { x: -6, z: 0, rosterIdx: 10 }
       ],
       7: [
-        { role: 'GK', x: -49.5, z: 0, num: 1 },
-        { role: 'DF', x: -34, z: -12, num: 3 },
-        { role: 'DF', x: -34, z: 12, num: 4 },
-        { role: 'MF', x: -20, z: -15, num: 8 },
-        { role: 'MF', x: -19, z: 0, num: 10 },
-        { role: 'MF', x: -20, z: 15, num: 11 },
-        { role: 'FW', x: -7, z: 0, num: 7 }
+        { x: -49.5, z: 0, rosterIdx: 0 },
+        { x: -34, z: -12, rosterIdx: 1 },
+        { x: -34, z: 12, rosterIdx: 3 },
+        { x: -20, z: -15, rosterIdx: 5 },
+        { x: -19, z: 0, rosterIdx: 6 },
+        { x: -20, z: 15, rosterIdx: 8 },
+        { x: -7, z: 0, rosterIdx: 10 }
       ],
       11: [
-        { role: 'GK', x: -49.5, z: 0, num: 1 },
-        { role: 'DF', x: -36, z: -20, num: 2 },
-        { role: 'DF', x: -38, z: -7, num: 4 },
-        { role: 'DF', x: -38, z: 7, num: 5 },
-        { role: 'DF', x: -36, z: 20, num: 3 },
-        { role: 'MF', x: -22, z: -16, num: 6 },
-        { role: 'MF', x: -21, z: 0, num: 8 },
-        { role: 'MF', x: -22, z: 16, num: 10 },
-        { role: 'FW', x: -10, z: -18, num: 11 },
-        { role: 'FW', x: -7, z: 0, num: 9 },
-        { role: 'FW', x: -10, z: 18, num: 7 }
+        { x: -49.5, z: 0, rosterIdx: 0 },
+        { x: -36, z: -20, rosterIdx: 3 },
+        { x: -38, z: -7, rosterIdx: 1 },
+        { x: -38, z: 7, rosterIdx: 2 },
+        { x: -36, z: 20, rosterIdx: 4 },
+        { x: -22, z: -16, rosterIdx: 5 },
+        { x: -21, z: 0, rosterIdx: 7 },
+        { x: -22, z: 16, rosterIdx: 6 },
+        { x: -10, z: -18, rosterIdx: 8 },
+        { x: -7, z: 0, rosterIdx: 9 },
+        { x: -10, z: 18, rosterIdx: 10 }
       ]
     };
 
-    const template = formations[size];
+    const template = positions[size];
 
-    // Spawn HOME Team (Left side attacking Right +X)
     template.forEach((slot, idx) => {
+      const profile = this.homeTeam.roster[slot.rosterIdx] || this.homeTeam.roster[0];
       const p = new Player(
         this.scene,
         `HOME_${idx}`,
         'HOME',
         this.homeTeam,
-        slot.role,
-        slot.num,
+        profile,
         slot.x,
         slot.z
       );
@@ -222,15 +324,14 @@ export class Game {
       this.homePlayers.push(p);
     });
 
-    // Spawn AWAY Team (Right side attacking Left -X)
     template.forEach((slot, idx) => {
+      const profile = this.awayTeam.roster[slot.rosterIdx] || this.awayTeam.roster[0];
       const p = new Player(
         this.scene,
         `AWAY_${idx}`,
         'AWAY',
         this.awayTeam,
-        slot.role,
-        slot.num,
+        profile,
         -slot.x,
         -slot.z
       );
@@ -238,7 +339,6 @@ export class Game {
       this.awayPlayers.push(p);
     });
 
-    // Select forward as initial controlled player
     const initialCtrl = this.homePlayers[this.homePlayers.length - 1];
     this.setControlledPlayer(initialCtrl);
   }
@@ -268,26 +368,81 @@ export class Game {
     this.setControlledPlayer(best);
   }
 
+  public cycleTacticalStance(): TacticalStance {
+    if (this.tacticalStance === 'BALANCED') {
+      this.tacticalStance = 'ATTACK';
+      this.showBanner('🔥 전술 변경: 총공격 (ALL-OUT ATTACK)', '라인을 높여 공격적으로 침투합니다!', 'banner-setpiece', 1.6);
+      this.commentary.announce('감독이 총공격 전술을 지시합니다! 수비 라인이 높게 올라갑니다.', 'normal');
+    } else if (this.tacticalStance === 'ATTACK') {
+      this.tacticalStance = 'DEFEND';
+      this.showBanner('🛡️ 전술 변경: 철벽 수비 (PARK THE BUS)', '수비 라인을 깊게 내려 공간을 차단합니다!', 'banner-clean', 1.6);
+      this.commentary.announce('전술을 수비적으로 전환합니다. 위험 지역을 단단히 잠급니다.', 'normal');
+    } else {
+      this.tacticalStance = 'BALANCED';
+      this.showBanner('⚖️ 전술 변경: 밸런스 (BALANCED)', '공수 균형을 유지하며 경기를 운영합니다.', 'banner-setpiece', 1.6);
+      this.commentary.announce('공수 밸런스 전술로 전환합니다.', 'low');
+    }
+    this.updateModeSpecificHUD();
+    return this.tacticalStance;
+  }
+
+  public substituteTiredPlayer(): void {
+    const outfield = this.homePlayers.filter((p) => !p.isSentOff && p.role !== 'GK');
+    if (outfield.length === 0) return;
+
+    // Find lowest stamina player
+    outfield.sort((a, b) => a.stamina - b.stamina);
+    const tired = outfield[0];
+    const oldName = tired.nameLabel;
+
+    const benchPool = this.homeTeam.bench;
+    if (benchPool && benchPool.length > 0) {
+      const subProfile = benchPool[this.benchIndex % benchPool.length];
+      this.benchIndex++;
+      tired.substituteWithBenchProfile(subProfile);
+
+      // Also give a small breather boost to teammates
+      for (const p of this.homePlayers) {
+        p.stamina = Math.min(100, p.stamina + 25);
+      }
+
+      this.showBanner(
+        `🔄 선수 교체 완료!`,
+        `OUT: ${oldName}  ➡️  IN: ${tired.nameLabel} (체력 100% 충전!)`,
+        'banner-clean',
+        2.4
+      );
+      this.commentary.announce(
+        `선수 교체가 이루어집니다! ${oldName} 선수가 나가고 벤치에서 ${tired.starName} 선수가 투입됩니다!`,
+        'high'
+      );
+    }
+  }
+
   public setupKickoff(kickoffTeam: 'HOME' | 'AWAY'): void {
     this.matchState = 'KICKOFF';
     this.stateTimer = 0.85;
+    this.pendingOffsideReceiverId = null;
     this.ball.resetToCenter();
     this.ball.updateTrajectoryGuide(this.ball.position, new THREE.Vector3(1, 0, 0), 0, 0, 0, false);
+    this.stadium.clearVanishingSpray();
     this.hideSetPiecePanel();
+    this.replay.clear();
 
     for (const p of this.players) {
       if (p.isSentOff) continue;
       p.inDefensiveWall = false;
+      p.isThrowInTaker = false;
       p.setPieceTarget = null;
       p.fallenTimer = 0;
       p.slideTimer = 0;
+      p.celebrationTimer = 0;
       p.velocity.set(0, 0, 0);
       p.position.copy(p.homePosition);
       p.facingAngle = p.team === 'HOME' ? Math.PI / 2 : -Math.PI / 2;
       p.group.position.copy(p.position);
     }
 
-    // Put kickoff striker right next to center ball
     const strikers = (kickoffTeam === 'HOME' ? this.homePlayers : this.awayPlayers).filter(
       (p) => !p.isSentOff && p.role !== 'GK'
     );
@@ -304,23 +459,18 @@ export class Game {
     this.referee.resetPosition(0, -11.0);
   }
 
-  /**
-   * Quick Director Trigger: Instant Free Kick outside the opponent's penalty box
-   */
   public triggerInstantFreeKick(spotX: number = 28, spotZ: number = 7.5): void {
     this.audio.playWhistle('foul');
     this.showBanner(
-      'FREE KICK 🎯',
+      'FREE KICK 🎯 (배니싱 스프레이 마킹)',
       '프리킥 세트피스 모드 (조이스틱 조준 + 커브 조절 후 슛!)',
       'banner-setpiece',
       2.2
     );
+    this.commentary.announce('위험 지역에서 프리킥이 선언됩니다! 심판이 배니싱 스프레이로 수비벽 위치를 표시합니다.', 'high');
     this.enterFreeKickSetup('HOME', new THREE.Vector3(spotX, 0, spotZ));
   }
 
-  /**
-   * Quick Director Trigger: Instant Penalty Kick 1v1 showdown
-   */
   public triggerInstantPenaltyKick(attackingTeam: 'HOME' | 'AWAY' = 'HOME'): void {
     this.audio.playWhistle('foul');
     this.showBanner(
@@ -331,13 +481,17 @@ export class Game {
       'banner-penalty',
       2.4
     );
+    this.commentary.announce('페널티킥이 선언됩니다! 키커와 골키퍼의 숨막히는 일대일 승부입니다!', 'high');
     this.enterPenaltySetup(attackingTeam);
   }
 
-  /**
-   * Quick Director Trigger: Instant Foul + Referee Sprinting + Yellow/Red Card Presentation
-   */
-  public triggerInstantFoulCardDemo(forceRed: boolean = false): void {
+  public triggerInstantCornerKick(): void {
+    this.audio.playWhistle('short');
+    const sideZ = Math.random() < 0.5 ? -Stadium.HALF_WIDTH + 0.6 : Stadium.HALF_WIDTH - 0.6;
+    this.enterCornerKickSetup('HOME', sideZ);
+  }
+
+  public triggerInstantFoulCardDemo(forceRed: boolean = false, useVar: boolean = false): void {
     const activeAway = this.awayPlayers.filter((p) => !p.isSentOff && p.role !== 'GK');
     const activeHome = this.homePlayers.filter((p) => !p.isSentOff && p.role !== 'GK');
     if (activeAway.length === 0 || activeHome.length === 0) return;
@@ -345,8 +499,7 @@ export class Game {
     const offender = activeAway[0];
     const victim = this.controlledPlayer && !this.controlledPlayer.isSentOff ? this.controlledPlayer : activeHome[0];
 
-    // Place action in an exciting dangerous zone (either just outside box or inside box)
-    const isInsideBox = Math.random() < 0.38;
+    const isInsideBox = useVar ? true : Math.random() < 0.38;
     const foulX = isInsideBox ? 40.5 : 29.0;
     const foulZ = (Math.random() - 0.5) * 14;
 
@@ -369,20 +522,14 @@ export class Game {
       isPenaltyBox: isInsideBox,
       cardType,
       reasonKo: forceRed ? '위험한 후방 깊숙한 백태클 반칙!' : '거친 슬라이딩 태클 반칙!',
-      severity: forceRed ? 0.95 : 0.65
+      severity: forceRed ? 0.95 : 0.65,
+      useVarCheck: useVar
     });
   }
 
-  /**
-   * Core Foul & Card Adjudication Logic
-   */
   private commitFoul(decision: FoulDecision): void {
     this.activeFoul = decision;
-    this.matchState = 'FOUL_CINEMATIC';
-    this.stateTimer = 3.5;
-    this.cardSoundPlayed = false;
-    this.secondCardSoundPlayed = false;
-
+    this.pendingOffsideReceiverId = null;
     this.ball.ownerId = null;
     this.ball.velocity.multiplyScalar(0.15);
 
@@ -390,14 +537,41 @@ export class Game {
     const victim = this.players.find((p) => p.id === decision.victimId);
 
     if (victim) {
-      victim.triggerFallDown(3.1);
+      victim.triggerFallDown(3.8);
     }
     if (offender) {
       offender.slideTimer = 0;
       offender.velocity.set(0, 0, 0);
     }
 
-    // Apply Yellow / Red Card rules to the offender
+    this.audio.playWhistle('foul');
+    this.audio.playTackleHit(true);
+
+    // Optional Dramatic VAR Check before final card/penalty declaration!
+    if (decision.useVarCheck) {
+      this.matchState = 'VAR_REVIEW';
+      this.stateTimer = 2.6;
+      this.showBanner(
+        '📺 VAR CHECKING... (비디오 판독 진행 중)',
+        '페널티 박스 내 반칙 및 카드 수위를 주심이 온필드 리뷰로 확인하고 있습니다...',
+        'banner-setpiece',
+        2.5
+      );
+      this.commentary.announce('잠시만요! 주심이 VAR 비디오 판독 시그널을 그립니다! 온필드 리뷰가 진행됩니다.', 'high');
+      return;
+    }
+
+    this.finalizeFoulAndShowCard(decision);
+  }
+
+  private finalizeFoulAndShowCard(decision: FoulDecision): void {
+    this.matchState = 'FOUL_CINEMATIC';
+    this.stateTimer = 3.4;
+    this.cardSoundPlayed = false;
+    this.secondCardSoundPlayed = false;
+
+    const offender = this.players.find((p) => p.id === decision.offenderId);
+
     if (offender) {
       if (decision.cardType === 'YELLOW') {
         offender.yellowCards = 1;
@@ -420,11 +594,8 @@ export class Game {
       }
     }
 
-    this.audio.playWhistle('foul');
-    this.audio.playTackleHit(true);
     this.referee.startFoulSequence(decision.cardType);
 
-    // Build Broadcast Foul & Card Banner text
     const offenderLabel = offender ? `${offender.teamConfig.flag} ${offender.nameLabel}` : decision.offenderId;
     const nextSetPieceText = decision.isPenaltyBox ? '➡️ 페널티킥(PK) 선언!' : '➡️ 프리킥(FK) 선언!';
 
@@ -433,23 +604,21 @@ export class Game {
     if (decision.cardType === 'YELLOW') {
       title = `🟨 옐로카드 경고! (${offenderLabel})`;
       bannerClass = 'banner-yellow';
+      this.commentary.announce(`주심이 달려와 ${offender?.starName || ''} 선수에게 옐로카드를 꺼내듭니다!`, 'high');
     } else if (decision.cardType === 'SECOND_YELLOW_RED') {
       title = `🟨🟥 경고 누적 퇴장! (${offenderLabel})`;
       bannerClass = 'banner-red';
+      this.commentary.announce(`경고 누적입니다! 옐로카드에 이어 레드카드가 선언되며 퇴장당합니다!`, 'high');
     } else if (decision.cardType === 'DIRECT_RED') {
       title = `🟥 다이렉트 레드카드 퇴장! (${offenderLabel})`;
       bannerClass = 'banner-red';
+      this.commentary.announce(`아, 위험한 반칙! 주심이 주저 없이 다이렉트 레드카드를 들어 올립니다! 퇴장입니다!`, 'high');
     }
 
     this.showBanner(title, `${decision.reasonKo}  •  ${nextSetPieceText}`, bannerClass, 3.3);
     this.updateScoreboardHUD();
   }
 
-  /**
-   * Free Kick Setup:
-   * Places the ball at the foul spot, positions the kicker behind the ball,
-   * and forms a 3-4 player Defensive Wall 9.15m toward the defending goal.
-   */
   public enterFreeKickSetup(attackingTeam: 'HOME' | 'AWAY', spot: THREE.Vector3): void {
     this.matchState = 'FREE_KICK_SETUP';
     this.setPieceTeam = attackingTeam;
@@ -475,15 +644,14 @@ export class Game {
       (p) => !p.isSentOff && p.role !== 'GK'
     );
 
-    // Reset wall flags
     for (const p of this.players) {
       p.inDefensiveWall = false;
+      p.isThrowInTaker = false;
       p.fallenTimer = 0;
       p.slideTimer = 0;
       p.velocity.set(0, 0, 0);
     }
 
-    // Select Kicker
     if (attackers.length > 0) {
       const kicker = attackers[attackers.length - 1];
       this.setPieceKicker = kicker;
@@ -494,7 +662,6 @@ export class Game {
         this.setControlledPlayer(kicker);
       }
 
-      // Arrange other attackers in support / box positions
       attackers.forEach((p, idx) => {
         if (p === kicker) return;
         const boxX = attackingTeam === 'HOME' ? Math.max(clampedX + 10, 36) : Math.min(clampedX - 10, -36);
@@ -524,7 +691,6 @@ export class Game {
         );
         d.facingAngle = Math.atan2(-toGoal.x, -toGoal.z);
       } else {
-        // Guard the penalty area
         const guardX = attackingTeam === 'HOME' ? 42 : -42;
         const guardZ = (idx - wallCount - 1) * 6;
         d.position.set(guardX, 0, THREE.MathUtils.clamp(guardZ, -16, 16));
@@ -533,23 +699,118 @@ export class Game {
       d.group.position.copy(d.position);
     });
 
-    // Position Referee observing the Free Kick & Wall from the side
+    // Show 3D White Foam Vanishing Spray at Ball & Defensive Wall!
+    this.stadium.showVanishingSpray(
+      this.ball.position,
+      wallCenter,
+      Math.atan2(wallPerp.z, wallPerp.x)
+    );
+
     this.referee.resetPosition(clampedX + toGoal.x * 4.5, clampedZ + (clampedZ > 0 ? -8.5 : 8.5));
     this.referee.facingAngle = Math.atan2(clampedX - this.referee.position.x, clampedZ - this.referee.position.z);
 
     this.showSetPiecePanel(attackingTeam === 'HOME', 'FREE_KICK');
   }
 
-  /**
-   * Penalty Kick Setup:
-   * Places the ball on the 11m Penalty Spot (x = ±41, z = 0),
-   * puts the Kicker vs Goalkeeper 1v1, and moves all other players outside the box.
-   */
+  public enterCornerKickSetup(attackingTeam: 'HOME' | 'AWAY', cornerZ: number): void {
+    this.matchState = 'CORNER_KICK_SETUP';
+    this.setPieceTeam = attackingTeam;
+    this.aiSetPieceTimer = 1.7;
+    this.stadium.clearVanishingSpray();
+
+    const cornerX = attackingTeam === 'HOME' ? Stadium.HALF_LENGTH - 0.5 : -Stadium.HALF_LENGTH + 0.5;
+    const clampedZ = cornerZ > 0 ? Stadium.HALF_WIDTH - 0.5 : -Stadium.HALF_WIDTH + 0.5;
+    this.ball.placeAt(cornerX, clampedZ);
+
+    const targetBoxX = attackingTeam === 'HOME' ? 43.0 : -43.0;
+    const toBox = new THREE.Vector3(targetBoxX - cornerX, 0, -clampedZ).normalize();
+    this.setPieceAimYaw = Math.atan2(toBox.x, toBox.z);
+    this.controls.setPieceElevation = 0.78;
+    this.controls.setPieceSpin = clampedZ > 0 ? 0.85 : -0.85;
+
+    const line = clampedZ < 0 ? this.northLinesman : this.southLinesman;
+    line.raiseFlag('CORNER KICK!', 2.5);
+
+    const attackers = (attackingTeam === 'HOME' ? this.homePlayers : this.awayPlayers).filter(
+      (p) => !p.isSentOff && p.role !== 'GK'
+    );
+    const defenders = (attackingTeam === 'HOME' ? this.awayPlayers : this.homePlayers).filter(
+      (p) => !p.isSentOff && p.role !== 'GK'
+    );
+
+    for (const p of this.players) {
+      p.inDefensiveWall = false;
+      p.isThrowInTaker = false;
+      p.velocity.set(0, 0, 0);
+    }
+
+    if (attackers.length > 0) {
+      const kicker = attackers[0];
+      this.setPieceKicker = kicker;
+      kicker.position.set(cornerX - toBox.x * 1.4, 0, clampedZ - toBox.z * 1.4);
+      kicker.facingAngle = this.setPieceAimYaw;
+      kicker.group.position.copy(kicker.position);
+      if (attackingTeam === 'HOME') this.setControlledPlayer(kicker);
+
+      // Put remaining attackers inside the box for headers!
+      attackers.slice(1).forEach((p, idx) => {
+        p.position.set(targetBoxX + (idx % 2) * 3.5, 0, (idx - 2) * 3.8);
+        p.facingAngle = attackingTeam === 'HOME' ? Math.PI / 2 : -Math.PI / 2;
+        p.group.position.copy(p.position);
+      });
+    }
+
+    defenders.forEach((d, idx) => {
+      d.position.set(targetBoxX + (attackingTeam === 'HOME' ? 2.5 : -2.5), 0, (idx - 2.5) * 3.2);
+      d.group.position.copy(d.position);
+    });
+
+    this.showBanner('🚩 CORNER KICK (코너킥)', '골문 앞 동료 머리를 향해 크로스를 올리거나 감아차세요!', 'banner-setpiece', 2.2);
+    this.commentary.announce('코너킥 찬스입니다! 골문 앞에 장신 선수들이 대거 몰려듭니다!', 'normal');
+    this.showSetPiecePanel(attackingTeam === 'HOME', 'FREE_KICK');
+  }
+
+  public enterThrowInSetup(attackingTeam: 'HOME' | 'AWAY', outX: number, outZ: number): void {
+    this.matchState = 'THROW_IN_SETUP';
+    this.setPieceTeam = attackingTeam;
+    this.aiSetPieceTimer = 1.2;
+
+    const clampedX = THREE.MathUtils.clamp(outX, -46, 46);
+    const sidelineZ = outZ > 0 ? Stadium.HALF_WIDTH - 0.2 : -Stadium.HALF_WIDTH + 0.2;
+
+    const line = sidelineZ < 0 ? this.northLinesman : this.southLinesman;
+    line.raiseFlag('THROW-IN!', 2.0);
+
+    const teamPool = (attackingTeam === 'HOME' ? this.homePlayers : this.awayPlayers).filter(
+      (p) => !p.isSentOff && p.role !== 'GK'
+    );
+    for (const p of this.players) {
+      p.isThrowInTaker = false;
+      p.velocity.set(0, 0, 0);
+    }
+
+    if (teamPool.length > 0) {
+      const thrower = teamPool[0];
+      this.setPieceKicker = thrower;
+      thrower.isThrowInTaker = true;
+      thrower.position.set(clampedX, 0, sidelineZ);
+      thrower.facingAngle = sidelineZ > 0 ? Math.PI : 0;
+      thrower.group.position.copy(thrower.position);
+      this.ball.position.set(clampedX, 2.35, sidelineZ);
+      this.ball.syncMesh();
+      if (attackingTeam === 'HOME') this.setControlledPlayer(thrower);
+    }
+
+    this.showBanner('🚩 THROW-IN (스로인)', '패스 또는 슛 버튼을 눌러 동료에게 공을 던지세요!', 'banner-setpiece', 1.6);
+    this.commentary.announce('터치라인 아웃! 선심이 깃발을 들며 스로인이 선언됩니다.', 'low');
+  }
+
   public enterPenaltySetup(attackingTeam: 'HOME' | 'AWAY'): void {
     this.matchState = 'PENALTY_SETUP';
     this.setPieceTeam = attackingTeam;
     this.aiSetPieceTimer = 2.1;
     this.userPenaltyDiveChoice = 0;
+    this.stadium.clearVanishingSpray();
 
     const spotX = attackingTeam === 'HOME' ? Stadium.PENALTY_SPOT_X : -Stadium.PENALTY_SPOT_X;
     const goalX = attackingTeam === 'HOME' ? Stadium.HALF_LENGTH : -Stadium.HALF_LENGTH;
@@ -570,6 +831,7 @@ export class Game {
     for (const p of this.players) {
       if (p.isSentOff) continue;
       p.inDefensiveWall = false;
+      p.isThrowInTaker = false;
       p.fallenTimer = 0;
       p.slideTimer = 0;
       p.velocity.set(0, 0, 0);
@@ -595,7 +857,6 @@ export class Game {
       }
     }
 
-    // Line up all other outfield players outside the penalty box arc (x = ±32)
     let lineIdx = 0;
     for (const p of this.players) {
       if (p.isSentOff || p === this.setPieceKicker || p.role === 'GK') continue;
@@ -607,7 +868,6 @@ export class Game {
       lineIdx++;
     }
 
-    // Position Referee inside the box to the side of the penalty spot watching the line
     this.referee.resetPosition(spotX + (attackingTeam === 'HOME' ? 2.5 : -2.5), -9.5);
     this.referee.facingAngle = Math.atan2(spotX - this.referee.position.x, -this.referee.position.z);
 
@@ -630,14 +890,14 @@ export class Game {
     this.controls.update(dt);
     this.stadium.update(dt);
 
-    // Update Touch Controller context labels (Attack vs Defense vs Set Piece)
     const isSetPiece =
-      this.matchState === 'FREE_KICK_SETUP' || this.matchState === 'PENALTY_SETUP';
+      this.matchState === 'FREE_KICK_SETUP' ||
+      this.matchState === 'PENALTY_SETUP' ||
+      this.matchState === 'CORNER_KICK_SETUP';
     const ownerPlayer = this.players.find((p) => p.id === this.ball.ownerId);
     const isDefense = !isSetPiece && ownerPlayer !== undefined && ownerPlayer.team === 'AWAY';
     this.controls.setContextMode(isDefense, isSetPiece);
 
-    // Update Shot Power HUD Bar
     const powerBarWrap = document.getElementById('shot-power-wrap');
     const powerBarFill = document.getElementById('shot-power-fill');
     if (powerBarWrap && powerBarFill) {
@@ -648,6 +908,10 @@ export class Game {
         powerBarWrap.classList.add('hidden');
       }
     }
+
+    // Update Assistant Referees (Linesmen) along North & South touchlines
+    this.northLinesman.update(dt, this.awayPlayers, this.ball.position);
+    this.southLinesman.update(dt, this.homePlayers, this.ball.position);
 
     switch (this.matchState) {
       case 'KICKOFF':
@@ -666,13 +930,29 @@ export class Game {
         this.updateCamera(dt);
         break;
 
+      case 'VAR_REVIEW':
+        this.stateTimer -= dt;
+        this.referee.updateVarSignal(dt);
+        this.updateCamera(dt);
+        if (this.stateTimer <= 0 && this.activeFoul) {
+          this.audio.playWhistle('double');
+          this.finalizeFoulAndShowCard(this.activeFoul);
+        }
+        break;
+
       case 'FOUL_CINEMATIC':
         this.updateFoulCinematic(dt);
         this.updateCamera(dt);
         break;
 
       case 'FREE_KICK_SETUP':
+      case 'CORNER_KICK_SETUP':
         this.updateFreeKickSetup(dt);
+        this.updateCamera(dt);
+        break;
+
+      case 'THROW_IN_SETUP':
+        this.updateThrowInSetup(dt);
         this.updateCamera(dt);
         break;
 
@@ -687,8 +967,29 @@ export class Game {
         for (const p of this.players) p.update(dt);
         this.updateCamera(dt);
         if (this.stateTimer <= 0) {
+          this.handlePostGoalTransition();
+        }
+        break;
+
+      case 'REPLAY_PLAYBACK': {
+        const stillPlaying = this.replay.updatePlayback(dt, this.ball, this.players, this.referee);
+        this.updateCamera(dt);
+        if (!stillPlaying || this.controls.triggerPass || this.controls.triggerShootWithPower !== null) {
+          this.controls.triggerPass = false;
+          this.controls.triggerShootWithPower = null;
+          document.getElementById('replay-badge')?.classList.add('hidden');
           this.setupKickoff(this.ball.position.x > 0 ? 'AWAY' : 'HOME');
         }
+        break;
+      }
+
+      case 'TROPHY_CELEBRATION':
+        this.stateTimer -= dt;
+        for (const p of this.homePlayers) {
+          p.celebrationTimer = 1.0;
+          p.update(dt);
+        }
+        this.updateCamera(dt);
         break;
 
       default:
@@ -699,71 +1000,222 @@ export class Game {
     this.updateRefereeStatusHUD();
   }
 
-  private updateOpenPlay(dt: number): void {
-    // Advance match clock
-    this.matchClockSec += dt;
-    if (this.half === 1 && this.matchClockSec >= this.halfDurationSec) {
-      this.half = 2;
-      this.matchClockSec = this.halfDurationSec;
-      this.audio.playWhistle('double');
-      this.showBanner('HALF TIME ⏱️', '후반전이 곧 시작됩니다 (2ND HALF)', 'banner-setpiece', 2.2);
-      this.setupKickoff('AWAY');
-      this.updateScoreboardHUD();
-      return;
-    } else if (this.half === 2 && this.matchClockSec >= this.halfDurationSec * 2) {
-      this.matchClockSec = 0;
-      this.half = 1;
-      this.audio.playWhistle('fulltime');
-      this.showBanner(
-        `FULL TIME 🏁 (${this.homeScore} : ${this.awayScore})`,
-        '경기가 종료되었습니다! 새 킥오프로 이어서 진행합니다.',
-        'banner-setpiece',
-        3.0
-      );
-      this.setupKickoff('HOME');
-      this.updateScoreboardHUD();
+  private handlePostGoalTransition(): void {
+    if (this.gameMode === 'PENALTY_SHOOTOUT') {
+      this.advancePenaltyShootoutRound(true);
       return;
     }
-    this.updateClockHUD();
+    if (this.gameMode === 'FREE_KICK_CHALLENGE') {
+      this.advanceFreeKickChallenge(true);
+      return;
+    }
 
-    // Handle player switching request
+    // Play Slow-Motion Instant Replay after a goal in Exhibition / Tournament!
+    if (this.replay.startPlayback()) {
+      this.matchState = 'REPLAY_PLAYBACK';
+      document.getElementById('replay-badge')?.classList.remove('hidden');
+      this.commentary.announce('방금 터진 환상적인 득점 장면을 슬로우 모션 리플레이로 다시 보시겠습니다!', 'normal');
+    } else {
+      this.setupKickoff(this.ball.position.x > 0 ? 'AWAY' : 'HOME');
+    }
+  }
+
+  private advancePenaltyShootoutRound(scored: boolean): void {
+    if (this.shootoutIsUserTurn) {
+      this.shootoutHomeResults.push(scored ? 'O' : 'X');
+      this.shootoutIsUserTurn = false;
+      this.updateModeSpecificHUD();
+      this.enterPenaltySetup('AWAY');
+    } else {
+      this.shootoutAwayResults.push(scored ? 'O' : 'X');
+      this.shootoutIsUserTurn = true;
+      this.shootoutRound++;
+      this.updateModeSpecificHUD();
+
+      if (this.shootoutRound > 5 && this.homeScore !== this.awayScore) {
+        const won = this.homeScore > this.awayScore;
+        this.showBanner(
+          won ? '🏆 승부차기 승리!!' : '😢 승부차기 패배',
+          `최종 승부차기 스코어 ${this.homeScore} : ${this.awayScore}`,
+          won ? 'banner-goal' : 'banner-red',
+          3.5
+        );
+        this.commentary.announce(
+          won ? '승부차기 끝에 짜릿한 승리를 거둡니다!' : '아쉽게도 승부차기에서 패배합니다.',
+          'high'
+        );
+        this.shootoutRound = 1;
+        this.shootoutHomeResults = [];
+        this.shootoutAwayResults = [];
+        this.homeScore = 0;
+        this.awayScore = 0;
+      }
+      this.enterPenaltySetup('HOME');
+    }
+  }
+
+  private advanceFreeKickChallenge(scored: boolean): void {
+    if (scored) {
+      // Calculate bonus based on corner proximity
+      const distCorner = Math.hypot(Math.abs(this.ball.position.z) - 3.8, this.ball.position.y - 2.5);
+      const pts = distCorner < 1.6 ? 250 : 120;
+      this.fkChallengeScore += pts;
+      this.fkChallengeBest = Math.max(this.fkChallengeBest, this.fkChallengeScore);
+      this.showBanner(
+        `🎯 CHALLENGE HIT! +${pts} PTS!`,
+        `누적 점수: ${this.fkChallengeScore} PT (최고 기록: ${this.fkChallengeBest} PT)`,
+        'banner-goal',
+        2.2
+      );
+    } else {
+      this.showBanner(
+        `💨 프리킥 실패 (+0 PT)`,
+        `다음 스테이지로 이동합니다! (현재: ${this.fkChallengeScore} PT)`,
+        'banner-foul',
+        1.8
+      );
+    }
+
+    this.fkChallengeStage = (this.fkChallengeStage % 5) + 1;
+    if (this.fkChallengeStage === 1) {
+      this.fkChallengeScore = 0;
+    }
+    this.setupNextFreeKickChallengeStage();
+  }
+
+  public advanceTournamentStage(): void {
+    if (this.tournamentRound === 1) {
+      this.tournamentRound = 2;
+      this.awayTeam = TEAMS[this.tournamentOpponents[1]] || TEAMS.FRA;
+      this.homeScore = 0;
+      this.awayScore = 0;
+      this.spawnTeams(this.teamSize);
+      this.setupKickoff('HOME');
+      this.showBanner('🏆 월드컵 4강(준결승) 진출!', `${this.homeTeam.name} vs ${this.awayTeam.name}`, 'banner-goal', 3.0);
+      this.commentary.announce(`4강 준결승전에 진출합니다! 상대는 강호 ${this.awayTeam.name}입니다!`, 'high');
+    } else if (this.tournamentRound === 2) {
+      this.tournamentRound = 3;
+      this.awayTeam = TEAMS[this.tournamentOpponents[2]] || TEAMS.ARG;
+      this.homeScore = 0;
+      this.awayScore = 0;
+      this.spawnTeams(this.teamSize);
+      this.setupKickoff('HOME');
+      this.showBanner('🏆 대망의 월드컵 결승전 (FINAL)!', `${this.homeTeam.name} vs ${this.awayTeam.name}`, 'banner-goal', 3.2);
+      this.commentary.announce(`대망의 월드컵 결승전입니다! 우승 트로피를 놓고 마지막 승부가 펼쳐집니다!`, 'high');
+    } else {
+      // Won the World Cup Final -> Trophy Celebration!
+      this.matchState = 'TROPHY_CELEBRATION';
+      this.stateTimer = 8.0;
+      this.stadium.trophyGroup.visible = true;
+      this.stadium.triggerGoalCrowdCelebration();
+      this.audio.playGoalCheer();
+
+      // Gather Home team around the Golden World Cup Trophy at center circle
+      this.homePlayers.forEach((p, idx) => {
+        const angle = (idx / this.homePlayers.length) * Math.PI * 2;
+        p.position.set(Math.cos(angle) * 4.5, 0, Math.sin(angle) * 4.5);
+        p.facingAngle = Math.atan2(-p.position.x, -p.position.z);
+        p.celebrationTimer = 8.0;
+        p.group.position.copy(p.position);
+      });
+
+      this.showBanner(
+        `🏆 WORLD CUP CHAMPIONS!! (${this.homeTeam.name})`,
+        `결승전 승리로 황금빛 월드컵 트로피를 들어 올립니다!! 🎉`,
+        'banner-goal',
+        6.0
+      );
+      this.commentary.announce(
+        `축하합니다! ${this.homeTeam.name} 대표팀이 결승전을 제압하고 월드컵 챔피언에 등극합니다!`,
+        'high'
+      );
+    }
+    this.updateScoreboardHUD();
+    this.updateModeSpecificHUD();
+  }
+
+  private updateOpenPlay(dt: number): void {
+    // Record frame for Instant Replay
+    this.replay.recordStep(dt, this.ball, this.players, this.referee);
+
+    // Handle Free Kick / Penalty Shootout flight timeout if ball stops or goes far out
+    if (this.matchState === 'PENALTY_PLAY' || (this.gameMode === 'FREE_KICK_CHALLENGE' && this.matchState === 'FREE_KICK_PLAY')) {
+      this.stateTimer += dt;
+      if (this.stateTimer > 3.6 || (this.stateTimer > 1.2 && this.ball.velocity.length() < 1.5)) {
+        this.stateTimer = 0;
+        if (this.gameMode === 'PENALTY_SHOOTOUT') {
+          this.advancePenaltyShootoutRound(false);
+          return;
+        } else if (this.gameMode === 'FREE_KICK_CHALLENGE') {
+          this.advanceFreeKickChallenge(false);
+          return;
+        } else {
+          this.matchState = 'PLAYING';
+        }
+      }
+    }
+
+    // Advance match clock in standard matches
+    if (this.gameMode === 'EXHIBITION' || this.gameMode === 'TOURNAMENT') {
+      this.matchClockSec += dt;
+      if (this.half === 1 && this.matchClockSec >= this.halfDurationSec) {
+        this.half = 2;
+        this.matchClockSec = this.halfDurationSec;
+        this.audio.playWhistle('double');
+        this.showBanner('HALF TIME ⏱️', '후반전이 곧 시작됩니다 (2ND HALF)', 'banner-setpiece', 2.2);
+        this.commentary.announce('전반전이 종료되었습니다. 잠시 후 후반전이 시작됩니다.', 'normal');
+        this.setupKickoff('AWAY');
+        this.updateScoreboardHUD();
+        return;
+      } else if (this.half === 2 && this.matchClockSec >= this.halfDurationSec * 2) {
+        this.matchClockSec = 0;
+        this.half = 1;
+        this.audio.playWhistle('fulltime');
+        if (this.gameMode === 'TOURNAMENT' && this.homeScore >= this.awayScore) {
+          this.advanceTournamentStage();
+          return;
+        }
+        this.showBanner(
+          `FULL TIME 🏁 (${this.homeScore} : ${this.awayScore})`,
+          '경기가 종료되었습니다! 새 킥오프로 이어서 진행합니다.',
+          'banner-setpiece',
+          3.0
+        );
+        this.setupKickoff('HOME');
+        this.updateScoreboardHUD();
+        return;
+      }
+      this.updateClockHUD();
+    }
+
     if (this.controls.triggerSwitchPlayer) {
       this.controls.triggerSwitchPlayer = false;
       this.switchToNearestHomePlayer();
     }
 
-    // Auto-switch controlled player if an unselected HOME player claims the ball
     const currentOwner = this.players.find((p) => p.id === this.ball.ownerId);
     if (currentOwner && currentOwner.team === 'HOME' && currentOwner !== this.controlledPlayer) {
       this.setControlledPlayer(currentOwner);
     }
 
-    // 1. Update User Controlled Player
     this.updateControlledPlayerInput(dt);
 
-    // 2. Update AI for all other players
     for (const p of this.players) {
       if (p.isSentOff) continue;
       if (p !== this.controlledPlayer) {
         this.updatePlayerAI(p, dt);
       }
-      p.update(dt);
+      p.update(dt, p === this.controlledPlayer && this.controls.isSprinting);
     }
 
-    // 3. Check Slide Tackle Collisions -> Clean Tackle vs Foul & Yellow/Red Card!
     this.checkSlideTacklesAndFouls();
-    if (this.matchState === 'FOUL_CINEMATIC') return;
+    if (this.matchState === 'FOUL_CINEMATIC' || this.matchState === 'VAR_REVIEW') return;
 
-    // 4. Check Ball Ownership & Dribbling attachment
     this.updateBallPossessionAndDribbling(dt);
+    if (this.matchState === 'FREE_KICK_SETUP') return;
 
-    // 5. Update World Cup Ball Physics
     this.ball.update(dt);
-
-    // 6. Check Goalposts, Crossbar, Goalkeeper Saves, Goals, and Out-of-Bounds
     this.checkGoalAndBoundaries();
-
-    // 7. Update Referee Distant Follow AI
     this.referee.updateFollowPlay(dt, this.ball.position, this.ball.velocity, this.players);
   }
 
@@ -772,15 +1224,32 @@ export class Game {
     if (!p || p.isSentOff || p.fallenTimer > 0) return;
 
     const move = this.controls.moveVec;
-    const baseSpeed = this.controls.isSprinting ? 10.6 : 7.8;
+    const speedMult = p.getEffectiveSpeedMultiplier(this.controls.isSprinting);
+    const baseSpeed = (this.controls.isSprinting ? 10.2 : 7.6) * speedMult;
 
-    // Convert screen input according to current camera mode
     let moveWorldX = move.x;
     let moveWorldZ = move.y;
     if (this.cameraMode === 'THIRD_PERSON') {
-      // In Third-Person mode (looking toward +X), up is +X and right is +Z
       moveWorldX = -move.y;
       moveWorldZ = move.x;
+    }
+
+    // Handle Skill Move (Marseille 360° Spin) or Tactical Stance Switch (#btn-skill / KeyE)
+    if (this.controls.triggerSkillOrTactics) {
+      this.controls.triggerSkillOrTactics = false;
+      const owner = this.players.find((pl) => pl.id === this.ball.ownerId);
+      if (owner && owner.team === 'AWAY') {
+        this.cycleTacticalStance();
+      } else if (p.triggerSkillMove()) {
+        this.audio.playKick(0.35);
+        this.commentary.announce(`${p.starName} 화려한 마르세유 턴 개인기로 수비를 벗겨냅니다!`, 'low');
+        // Stumble nearby Away defenders caught by the skill move!
+        for (const opp of this.awayPlayers) {
+          if (!opp.isSentOff && opp.position.distanceTo(p.position) < 2.5) {
+            opp.triggerFallDown(0.95);
+          }
+        }
+      }
     }
 
     if (p.slideTimer <= 0) {
@@ -788,7 +1257,6 @@ export class Game {
         p.velocity.x = THREE.MathUtils.lerp(p.velocity.x, moveWorldX * baseSpeed, dt * 10);
         p.velocity.z = THREE.MathUtils.lerp(p.velocity.z, moveWorldZ * baseSpeed, dt * 10);
       } else if (this.controls.isPressingDefense && this.ball.ownerId !== p.id) {
-        // Automatic Defensive Press toward the ball carrier
         const toBall = this.ball.position.clone().sub(p.position);
         toBall.y = 0;
         if (toBall.length() > 0.8) {
@@ -801,7 +1269,6 @@ export class Game {
       }
     }
 
-    // Handle Slide Tackle Trigger
     if (this.controls.triggerSlideTackle) {
       this.controls.triggerSlideTackle = false;
       const tackleDir =
@@ -811,12 +1278,11 @@ export class Game {
       p.triggerSlideTackle(tackleDir);
     }
 
-    // Handle Offensive Actions when owning the ball (or very close to loose ball)
     const distToBall = p.position.distanceTo(this.ball.position);
     const canKickBall = this.ball.ownerId === p.id || (this.ball.ownerId === null && distToBall < 1.85);
 
     if (canKickBall) {
-      // 1) Shoot (with charged power + optional curve from joystick)
+      // 1) Shoot
       if (this.controls.triggerShootWithPower !== null) {
         const power = this.controls.triggerShootWithPower;
         this.controls.triggerShootWithPower = null;
@@ -827,13 +1293,15 @@ export class Game {
           THREE.MathUtils.clamp(moveWorldZ * 4.8, -Stadium.GOAL_HALF_WIDTH + 0.6, Stadium.GOAL_HALF_WIDTH - 0.6)
         );
         const shootDir = goalTarget.sub(p.position).normalize();
-        const speed = 19.5 + power * 14.5;
+        const speed = (19.5 + power * 14.5) * p.shootStat;
         const loft = 2.8 + power * 6.8;
-        const curveSpin = -moveWorldZ * 1.15;
+        const curveSpin = -moveWorldZ * 1.15 * p.curveStat;
 
         p.kickAnimTimer = 0.28;
+        this.pendingOffsideReceiverId = null;
         this.ball.kick(shootDir, speed, loft, curveSpin, p.id, 'HOME');
         this.audio.playKick(power);
+        this.commentary.announce(`${p.starName} 강력한 슈팅!!`, 'normal');
       }
 
       // 2) Short Ground Pass
@@ -844,6 +1312,9 @@ export class Game {
           ? passTarget.position.clone().sub(p.position).normalize()
           : new THREE.Vector3(Math.sin(p.facingAngle), 0, Math.cos(p.facingAngle));
 
+        if (passTarget) {
+          this.checkPassForOffside(p, passTarget);
+        }
         p.kickAnimTimer = 0.22;
         this.ball.kick(passDir, 18.5, 1.2, 0, p.id, 'HOME');
         this.audio.playKick(0.5);
@@ -858,24 +1329,36 @@ export class Game {
         const targetMate = this.findBestTeammateForPass(p, new THREE.Vector3(moveWorldX, 0, moveWorldZ), true);
         let dir = new THREE.Vector3(1, 0, moveWorldZ * 0.5).normalize();
         if (targetMate) {
+          this.checkPassForOffside(p, targetMate);
           const leadSpot = targetMate.position.clone().add(new THREE.Vector3(7.5, 0, 0));
           dir = leadSpot.sub(p.position).normalize();
           this.setControlledPlayer(targetMate);
         }
         p.kickAnimTimer = 0.25;
-        this.ball.kick(dir, 22.0, 4.2, 0.35, p.id, 'HOME');
+        this.ball.kick(dir, 22.0, 4.2, 0.35 * p.curveStat, p.id, 'HOME');
         this.audio.playKick(0.75);
+        this.commentary.announce(`${p.starName} 날카로운 스루패스를 찔러줍니다!`, 'low');
       }
     } else {
-      // Clear unused offensive triggers when not near ball
       this.controls.triggerShootWithPower = null;
       this.controls.triggerPass = false;
       this.controls.triggerThrough = false;
     }
   }
 
+  private checkPassForOffside(passer: Player, receiver: Player): void {
+    this.pendingOffsideReceiverId = null;
+    if (passer.team === 'HOME') {
+      const offLine = this.northLinesman.offsideLineX;
+      if (receiver.position.x > 3.0 && receiver.position.x > passer.position.x + 1.5 && receiver.position.x > offLine + 2.2) {
+        this.pendingOffsideReceiverId = receiver.id;
+        this.pendingOffsideLineX = offLine;
+      }
+    }
+  }
+
   private findBestTeammateForPass(
-     passer: Player,
+    passer: Player,
     inputDir: THREE.Vector3,
     isThrough: boolean
   ): Player | null {
@@ -909,7 +1392,7 @@ export class Game {
   }
 
   private updatePlayerAI(p: Player, dt: number): void {
-    if (p.slideTimer > 0 || p.fallenTimer > 0 || p.diveTimer > 0) return;
+    if (p.slideTimer > 0 || p.fallenTimer > 0 || p.diveTimer > 0 || p.celebrationTimer > 0) return;
 
     // 1. Goalkeeper AI
     if (p.role === 'GK') {
@@ -917,7 +1400,6 @@ export class Game {
       const targetZ = THREE.MathUtils.clamp(this.ball.position.z * 0.36, -4.6, 4.6);
       const gkTarget = new THREE.Vector3(goalX, 0, targetZ);
 
-      // Dive for fast incoming shots!
       const ballSpeedX = p.team === 'HOME' ? -this.ball.velocity.x : this.ball.velocity.x;
       const distToGoalX = Math.abs(this.ball.position.x - goalX);
       if (ballSpeedX > 11 && distToGoalX < 15 && Math.abs(this.ball.position.z) < 7.5) {
@@ -934,7 +1416,6 @@ export class Game {
       p.velocity.z = toTarget.z * 5.5;
       p.facingAngle = p.team === 'HOME' ? Math.PI / 2 : -Math.PI / 2;
 
-      // If GK owns the ball, immediately clear/pass it upfield
       if (this.ball.ownerId === p.id) {
         const clearDir = new THREE.Vector3(p.team === 'HOME' ? 1 : -1, 0, (Math.random() - 0.5) * 0.5).normalize();
         p.kickAnimTimer = 0.25;
@@ -944,24 +1425,23 @@ export class Game {
       return;
     }
 
-    // 2. Outfield AI when THIS player has the ball (Away AI ball carrier)
+    // 2. Outfield AI when THIS player has the ball
     if (this.ball.ownerId === p.id) {
       const attackGoalX = p.team === 'HOME' ? Stadium.HALF_LENGTH : -Stadium.HALF_LENGTH;
       const toGoal = new THREE.Vector3(attackGoalX - p.position.x, 0, -p.position.z);
       const distToGoal = toGoal.length();
       toGoal.normalize();
 
-      // Shoot if inside 24m of goal
       if (distToGoal < 24 && Math.random() < dt * 2.2) {
         const aimZ = (Math.random() - 0.5) * (Stadium.GOAL_HALF_WIDTH * 1.5);
         const shotDir = new THREE.Vector3(attackGoalX - p.position.x, 0, aimZ - p.position.z).normalize();
         p.kickAnimTimer = 0.26;
-        this.ball.kick(shotDir, 25.5, 4.4, (Math.random() - 0.5) * 1.1, p.id, p.team);
+        this.ball.kick(shotDir, 25.0 * p.shootStat, 4.4, (Math.random() - 0.5) * 1.1, p.id, p.team);
         this.audio.playKick(0.85);
+        this.commentary.announce(`${p.starName} 과감한 중거리 슈팅!`, 'normal');
         return;
       }
 
-      // Pass if pressed closely by defender
       const opponents = p.team === 'HOME' ? this.awayPlayers : this.homePlayers;
       const closestOpp = opponents.find(
         (opp) => !opp.isSentOff && opp.position.distanceTo(p.position) < 4.2
@@ -977,8 +1457,7 @@ export class Game {
         }
       }
 
-      // Otherwise dribble toward opponent goal
-      p.velocity.set(toGoal.x * 7.6, 0, toGoal.z * 7.6);
+      p.velocity.set(toGoal.x * 7.6 * p.speedStat, 0, toGoal.z * 7.6 * p.speedStat);
       return;
     }
 
@@ -987,7 +1466,6 @@ export class Game {
       (m) => !m.isSentOff && m.role !== 'GK'
     );
 
-    // Closest AI player on team chases the ball
     let closestChaser = teamPlayers[0];
     let minBallDist = Infinity;
     for (const m of teamPlayers) {
@@ -1005,10 +1483,9 @@ export class Game {
       const dist = toBall.length();
       if (dist > 0.5) {
         toBall.normalize();
-        p.velocity.set(toBall.x * 7.6, 0, toBall.z * 7.6);
+        p.velocity.set(toBall.x * 7.6 * p.speedStat, 0, toBall.z * 7.6 * p.speedStat);
       }
 
-      // Away defender occasionally attempts a slide tackle (which can cause a foul -> User Free Kick or Penalty!)
       const ballOwner = this.players.find((pl) => pl.id === this.ball.ownerId);
       if (
         p.team === 'AWAY' &&
@@ -1023,8 +1500,13 @@ export class Game {
       return;
     }
 
-    // Dynamic tactical formation positioning shifted by ball position
-    const shiftX = this.ball.position.x * 0.42;
+    // Tactical formation shift (Attack vs Balanced vs Defend)
+    let stanceOffset = 0;
+    if (p.team === 'HOME') {
+      stanceOffset = this.tacticalStance === 'ATTACK' ? 9.5 : this.tacticalStance === 'DEFEND' ? -8.5 : 0;
+    }
+
+    const shiftX = this.ball.position.x * 0.42 + stanceOffset;
     const shiftZ = this.ball.position.z * 0.28;
     const targetX = THREE.MathUtils.clamp(p.homePosition.x + shiftX, -46, 46);
     const targetZ = THREE.MathUtils.clamp(p.homePosition.z + shiftZ, -30, 30);
@@ -1040,11 +1522,6 @@ export class Game {
     }
   }
 
-  /**
-   * Evaluates active Slide Tackles against opponent players & the ball:
-   * - If tackler hits the ball cleanly first -> Clean Tackle!
-   * - If tackler hits an opponent's legs/body before winning the ball -> Foul + Card Decision!
-   */
   private checkSlideTacklesAndFouls(): void {
     for (const tackler of this.players) {
       if (tackler.isSentOff || tackler.slideTimer <= 0 || tackler.slideHasDealtContact) continue;
@@ -1053,13 +1530,12 @@ export class Game {
       const distToBall = tackler.position.distanceTo(this.ball.position);
 
       for (const victim of opponents) {
-        if (victim.isSentOff || victim.fallenTimer > 0) continue;
+        if (victim.isSentOff || victim.fallenTimer > 0 || victim.skillTimer > 0) continue;
 
         const distToVictim = tackler.position.distanceTo(victim.position);
         if (distToVictim < 1.68) {
           tackler.slideHasDealtContact = true;
 
-          // Did the tackler clearly win the ball first from the front?
           const victimFacingVec = new THREE.Vector3(
             Math.sin(victim.facingAngle),
             0,
@@ -1075,23 +1551,21 @@ export class Game {
             Math.random() < 0.45;
 
           if (wonBallCleanly) {
-            // Clean Tackle!
             this.ball.ownerId = tackler.id;
             this.ball.lastTouchTeam = tackler.team;
             victim.triggerFallDown(0.7);
             this.audio.playTackleHit(false);
             this.showBanner('CLEAN TACKLE! 🛡️', '공을 먼저 정확하게 건드린 정당한 태클!', 'banner-clean', 1.4);
+            this.commentary.announce(`${tackler.starName} 깔끔한 슬라이딩 태클로 공만 쏙 빼냅니다!`, 'low');
             return;
           }
 
-          // Otherwise: FOUL COMMITTED!
           const foulPos = victim.position.clone();
-          const defendingSideX = tackler.team === 'HOME' ? -1 : 1; // HOME defends -X, AWAY defends +X
+          const defendingSideX = tackler.team === 'HOME' ? -1 : 1;
           const inDefendingPenaltyBox =
             foulPos.x * defendingSideX > Stadium.HALF_LENGTH - Stadium.PENALTY_BOX_DEPTH &&
             Math.abs(foulPos.z) < Stadium.PENALTY_BOX_HALF_WIDTH;
 
-          // Determine Card Severity (Yellow vs 2nd Yellow Red vs Direct Red)
           let cardType: CardType = 'YELLOW';
           let reasonKo = '상대 다리를 가격한 거친 슬라이딩 태클 반칙!';
 
@@ -1114,7 +1588,8 @@ export class Game {
             isPenaltyBox: inDefendingPenaltyBox,
             cardType,
             reasonKo,
-            severity: isBackTackle ? 0.95 : 0.7
+            severity: isBackTackle ? 0.95 : 0.7,
+            useVarCheck: inDefendingPenaltyBox && Math.random() < 0.45
           });
           return;
         }
@@ -1149,7 +1624,6 @@ export class Game {
     }
 
     if (this.stateTimer <= 0 && this.activeFoul) {
-      // If player received a Red Card, remove them from the pitch now!
       if (offender && offender.redCard) {
         offender.isSentOff = true;
         offender.group.visible = false;
@@ -1169,20 +1643,47 @@ export class Game {
     }
   }
 
+  private updateThrowInSetup(dt: number): void {
+    const isUser = this.setPieceTeam === 'HOME';
+    if (isUser) {
+      this.setPieceAimYaw -= this.controls.moveVec.x * dt * 1.2;
+    } else {
+      this.aiSetPieceTimer -= dt;
+    }
+
+    if (this.setPieceKicker) {
+      this.setPieceKicker.facingAngle = this.setPieceAimYaw;
+      this.setPieceKicker.bodyGroup.rotation.y = this.setPieceAimYaw;
+    }
+
+    const shouldThrow =
+      (isUser && (this.controls.triggerPass || this.controls.triggerShootWithPower !== null || this.controls.triggerThrough)) ||
+      (!isUser && this.aiSetPieceTimer <= 0);
+
+    if (shouldThrow && this.setPieceKicker) {
+      this.controls.triggerPass = false;
+      this.controls.triggerShootWithPower = null;
+      this.controls.triggerThrough = false;
+      this.setPieceKicker.isThrowInTaker = false;
+
+      const dir = new THREE.Vector3(Math.sin(this.setPieceAimYaw), 0, Math.cos(this.setPieceAimYaw)).normalize();
+      const mate = this.findBestTeammateForPass(this.setPieceKicker, dir, false);
+      const throwDir = mate ? mate.position.clone().sub(this.setPieceKicker.position).normalize() : dir;
+
+      this.ball.position.set(this.setPieceKicker.position.x, 1.4, this.setPieceKicker.position.z);
+      this.ball.kick(throwDir, 15.5, 2.8, 0, this.setPieceKicker.id, this.setPieceTeam);
+      this.audio.playKick(0.45);
+      if (mate && isUser) this.setControlledPlayer(mate);
+      this.matchState = 'PLAYING';
+    }
+  }
+
   private updateFreeKickSetup(dt: number): void {
     const isUserKicker = this.setPieceTeam === 'HOME';
     const goalX = this.setPieceTeam === 'HOME' ? Stadium.HALF_LENGTH : -Stadium.HALF_LENGTH;
 
     if (isUserKicker) {
-      // Adjust aim horizontally and vertically with tablet joystick
       this.setPieceAimYaw -= this.controls.moveVec.x * dt * 0.65;
-      const baseAngle = Math.atan2(goalX - this.ball.position.x, -this.ball.position.z);
-      this.setPieceAimYaw = THREE.MathUtils.clamp(
-        this.setPieceAimYaw,
-        baseAngle - 0.65,
-        baseAngle + 0.65
-      );
-
       if (Math.abs(this.controls.moveVec.y) > 0.1) {
         this.controls.setPieceElevation = THREE.MathUtils.clamp(
           this.controls.setPieceElevation - this.controls.moveVec.y * dt * 0.6,
@@ -1200,7 +1701,6 @@ export class Game {
     const loft = 4.2 + this.controls.setPieceElevation * 5.8;
     const spin = this.controls.setPieceSpin * 1.45;
 
-    // Position kicker behind ball along current aim line
     if (this.setPieceKicker) {
       this.setPieceKicker.position.set(
         this.ball.position.x - dir.x * 1.65,
@@ -1212,29 +1712,31 @@ export class Game {
       this.setPieceKicker.bodyGroup.rotation.y = this.setPieceAimYaw;
     }
 
-    // Update live 3D Trajectory Guide Arc
     this.ball.updateTrajectoryGuide(this.ball.position, dir, speed, loft, spin, true);
 
-    // Fire Free Kick when User releases Shoot / presses Pass / or AI timer finishes
     const shouldFireShot =
-      (isUserKicker && (this.controls.triggerShootWithPower !== null || this.controls.triggerThrough)) ||
+      (isUserKicker &&
+        (this.controls.triggerShootWithPower !== null ||
+          this.controls.triggerThrough ||
+          this.controls.triggerSkillOrTactics)) ||
       (!isUserKicker && this.aiSetPieceTimer <= 0);
 
     if (shouldFireShot) {
       const power = this.controls.triggerShootWithPower ?? 0.78;
       const isKnuckle = this.controls.triggerThrough;
+      const isChip = this.controls.triggerSkillOrTactics;
       this.controls.triggerShootWithPower = null;
       this.controls.triggerThrough = false;
+      this.controls.triggerSkillOrTactics = false;
 
-      const finalSpeed = 22.5 + power * 11.5;
-      const finalLoft = 4.5 + this.controls.setPieceElevation * 5.6;
+      const finalSpeed = isChip ? 18.5 : 22.5 + power * 11.5;
+      const finalLoft = isChip ? 8.8 : 4.5 + this.controls.setPieceElevation * 5.6;
       const finalSpin = isKnuckle ? 0 : this.controls.setPieceSpin * 1.55;
 
       if (this.setPieceKicker) {
         this.setPieceKicker.kickAnimTimer = 0.3;
       }
 
-      // Defensive Wall jumps when the Free Kick is struck!
       for (const p of this.players) {
         if (p.inDefensiveWall) {
           p.triggerWallJump();
@@ -1244,12 +1746,13 @@ export class Game {
       this.ball.updateTrajectoryGuide(this.ball.position, dir, 0, 0, 0, false);
       this.ball.kick(dir, finalSpeed, finalLoft, finalSpin, this.setPieceKicker?.id || null, this.setPieceTeam);
       this.audio.playKick(0.95);
+      this.commentary.announce(`${this.setPieceKicker?.starName || '키커'} 직접 감아차기 프리킥 슛!!`, 'normal');
       this.hideSetPiecePanel();
+      this.stateTimer = 0;
       this.matchState = 'FREE_KICK_PLAY';
       return;
     }
 
-    // Or play a short tactical Free Kick Pass
     if (isUserKicker && this.controls.triggerPass && this.setPieceKicker) {
       this.controls.triggerPass = false;
       const mate = this.findBestTeammateForPass(this.setPieceKicker, dir, false);
@@ -1268,7 +1771,6 @@ export class Game {
     const goalX = this.setPieceTeam === 'HOME' ? Stadium.HALF_LENGTH : -Stadium.HALF_LENGTH;
 
     if (isUserKicker) {
-      // Move target reticle inside goal frame using tablet joystick
       this.setPieceAimZ = THREE.MathUtils.clamp(
         this.setPieceAimZ + this.controls.moveVec.x * dt * 7.5,
         -Stadium.GOAL_HALF_WIDTH + 0.65,
@@ -1280,7 +1782,6 @@ export class Game {
         Stadium.GOAL_HEIGHT - 0.45
       );
     } else {
-      // User is defending GK: joystick left/right chooses dive direction
       if (Math.abs(this.controls.moveVec.x) > 0.25) {
         this.userPenaltyDiveChoice = Math.sign(this.controls.moveVec.x);
       }
@@ -1301,18 +1802,22 @@ export class Game {
     }
 
     const shouldShootPK =
-      (isUserKicker && (this.controls.triggerShootWithPower !== null || this.controls.triggerPass || this.controls.triggerThrough)) ||
+      (isUserKicker &&
+        (this.controls.triggerShootWithPower !== null ||
+          this.controls.triggerPass ||
+          this.controls.triggerThrough ||
+          this.controls.triggerSkillOrTactics)) ||
       (!isUserKicker && this.aiSetPieceTimer <= 0);
 
     if (shouldShootPK) {
       const power = this.controls.triggerShootWithPower ?? 0.82;
-      const isPanenkaChip = this.controls.triggerPass;
+      const isPanenkaChip = this.controls.triggerPass || this.controls.triggerSkillOrTactics;
       this.controls.triggerShootWithPower = null;
       this.controls.triggerPass = false;
       this.controls.triggerThrough = false;
+      this.controls.triggerSkillOrTactics = false;
 
       if (!isUserKicker) {
-        // AI chooses a corner
         this.setPieceAimZ = (Math.random() < 0.5 ? -1 : 1) * (2.2 + Math.random() * 2.5);
         this.setPieceAimY = 0.8 + Math.random() * 1.8;
       }
@@ -1330,13 +1835,11 @@ export class Game {
         this.setPieceKicker.kickAnimTimer = 0.3;
       }
 
-      // Trigger Goalkeeper Dive!
       const defendingGK = (this.setPieceTeam === 'HOME' ? this.awayPlayers : this.homePlayers).find(
         (p) => p.role === 'GK'
       );
       if (defendingGK) {
         if (isUserKicker) {
-          // AI GK guesses direction (65% random, 35% reads corner)
           const aiDiveDir =
             Math.random() < 0.38
               ? Math.sign(this.setPieceAimZ)
@@ -1345,7 +1848,6 @@ export class Game {
               : 1;
           defendingGK.triggerGKDive(aiDiveDir);
         } else {
-          // User GK dives according to chosen button or joystick direction
           defendingGK.triggerGKDive(this.userPenaltyDiveChoice);
         }
       }
@@ -1353,7 +1855,11 @@ export class Game {
       this.ball.updateTrajectoryGuide(this.ball.position, shotDir, 0, 0, 0, false);
       this.ball.kick(shotDir, pkSpeed, pkLoft, spin, this.setPieceKicker?.id || null, this.setPieceTeam);
       this.audio.playKick(0.95);
+      if (isPanenkaChip) {
+        this.commentary.announce('아! 대담한 파넨카 칩슛을 시도합니다!!', 'high');
+      }
       this.hideSetPiecePanel();
+      this.stateTimer = 0;
       this.matchState = 'PENALTY_PLAY';
     }
   }
@@ -1374,7 +1880,6 @@ export class Game {
     this.setPieceAimY = isTop ? 2.75 : 0.85;
     this.controls.setPieceElevation = isTop ? 0.82 : 0.35;
 
-    // Also orient Free Kick yaw toward that goal corner
     this.setPieceAimYaw = Math.atan2(
       goalX - this.ball.position.x,
       targetZ - this.ball.position.z
@@ -1382,7 +1887,6 @@ export class Game {
   }
 
   private updateBallPossessionAndDribbling(dt: number): void {
-    // Defensive wall & player body collision with flying ball
     if (this.ball.ownerId === null && this.ball.velocity.lengthSq() > 25) {
       for (const p of this.players) {
         if (p.isSentOff || p.id === this.ball.lastKickerId) continue;
@@ -1395,26 +1899,27 @@ export class Game {
         if (horizDist < 0.88 && this.ball.position.y < playerTopY) {
           if (p.role === 'GK' && p.gkSaveCooldown <= 0) {
             p.gkSaveCooldown = 0.6;
-            // Goalkeeper Save!
             const deflectZ = p.position.z >= 0 ? 1 : -1;
             this.ball.velocity.x = -this.ball.velocity.x * 0.48;
             this.ball.velocity.z = deflectZ * 9.5;
             this.ball.velocity.y = 3.2;
+            this.ball.lastTouchTeam = p.team;
             this.audio.playKick(0.75);
             this.showBanner('SUPER SAVE! 🧤', `${p.nameLabel} 환상적인 슈퍼 세이브!`, 'banner-clean', 1.7);
+            this.commentary.announce(`골키퍼 ${p.starName} 동물적인 감각으로 쳐냅니다! 슈퍼 세이브!!`, 'high');
             return;
           } else if (p.inDefensiveWall) {
-            // Deflected off the Free Kick Wall!
             this.ball.velocity.x = -this.ball.velocity.x * 0.42;
             this.ball.velocity.y = Math.max(3.5, this.ball.velocity.y * 0.6);
+            this.ball.lastTouchTeam = p.team;
             this.audio.playKick(0.6);
+            this.commentary.announce('점프한 수비벽에 공이 맞고 굴절됩니다!', 'low');
             return;
           }
         }
       }
     }
 
-    // Claim loose ball when close and ball is low
     if (this.ball.position.y < 1.65) {
       for (const p of this.players) {
         if (p.isSentOff || p.fallenTimer > 0) continue;
@@ -1422,18 +1927,31 @@ export class Game {
 
         const dist = Math.hypot(p.position.x - this.ball.position.x, p.position.z - this.ball.position.z);
         if (dist < 1.08) {
-          // If another player owns it, standing tackle contest
+          // Check Offside Rule when the flagged receiver touches the ball!
+          if (p.id === this.pendingOffsideReceiverId) {
+            this.pendingOffsideReceiverId = null;
+            this.audio.playWhistle('foul');
+            this.northLinesman.raiseFlag('OFFSIDE!', 3.0);
+            this.stadium.showOffsideLaser(this.pendingOffsideLineX, 3.0);
+            this.showBanner('🚩 OFFSIDE! (오프사이드 반칙)', `${p.nameLabel} 최종 수비수보다 앞서 있었습니다!`, 'banner-yellow', 2.4);
+            this.commentary.announce(`아, 선심의 깃발이 올라갑니다! ${p.starName} 선수의 오프사이드가 선언됩니다!`, 'high');
+            this.enterFreeKickSetup('AWAY', p.position.clone());
+            return;
+          }
+
           if (this.ball.ownerId && this.ball.ownerId !== p.id) {
             const currentOwner = this.players.find((o) => o.id === this.ball.ownerId);
-            if (currentOwner && currentOwner.team !== p.team && Math.random() < dt * 3.8) {
+            if (currentOwner && currentOwner.team !== p.team && currentOwner.skillTimer <= 0 && Math.random() < dt * 3.8) {
               this.ball.ownerId = p.id;
               this.ball.lastTouchTeam = p.team;
+              this.pendingOffsideReceiverId = null;
               this.audio.playKick(0.3);
             }
           } else if (!this.ball.ownerId) {
             this.ball.ownerId = p.id;
             this.ball.lastTouchTeam = p.team;
-            if (this.matchState === 'FREE_KICK_PLAY' || this.matchState === 'PENALTY_PLAY') {
+            this.pendingOffsideReceiverId = null;
+            if (this.matchState === 'FREE_KICK_PLAY') {
               this.matchState = 'PLAYING';
             }
           }
@@ -1441,7 +1959,6 @@ export class Game {
       }
     }
 
-    // Keep ball smoothly at the feet of the dribbling owner
     if (this.ball.ownerId) {
       const owner = this.players.find((p) => p.id === this.ball.ownerId);
       if (owner && !owner.isSentOff && owner.fallenTimer <= 0) {
@@ -1469,13 +1986,12 @@ export class Game {
     const by = this.ball.position.y;
     const bz = this.ball.position.z;
 
-    // Check Goal Scoring (Crossing goal line ±52 within Goal Width & Height)
     if (Math.abs(bx) >= Stadium.HALF_LENGTH && Math.abs(bx) <= Stadium.HALF_LENGTH + Stadium.GOAL_DEPTH + 1.5) {
       if (Math.abs(bz) < Stadium.GOAL_HALF_WIDTH && by < Stadium.GOAL_HEIGHT) {
-        // Check crossbar / post hit near edges
-        if (Math.abs( Math.abs(bz) - Stadium.GOAL_HALF_WIDTH ) < 0.28 || Math.abs(by - Stadium.GOAL_HEIGHT) < 0.25) {
+        if (Math.abs(Math.abs(bz) - Stadium.GOAL_HALF_WIDTH) < 0.28 || Math.abs(by - Stadium.GOAL_HEIGHT) < 0.25) {
           this.ball.velocity.x = -this.ball.velocity.x * 0.65;
           this.audio.playPostHit();
+          this.commentary.announce('아앗! 슈팅이 골대를 강타합니다!!', 'high');
           return;
         }
 
@@ -1487,8 +2003,14 @@ export class Game {
         const scorer = this.players.find((p) => p.id === this.ball.lastKickerId);
         const scorerName = scorer ? `${scorer.teamConfig.flag} ${scorer.nameLabel}` : scoringTeam;
 
+        // Trigger Goal Scorer Celebration!
+        if (scorer) {
+          scorer.triggerGoalCelebration(3.2);
+          scorer.velocity.set(scoringTeam === 'HOME' ? -4 : 4, 0, 3);
+        }
+
         this.matchState = 'GOAL_CELEBRATION';
-        this.stateTimer = 3.2;
+        this.stateTimer = 2.8;
         this.ball.velocity.multiplyScalar(0.25);
         this.stadium.triggerGoalCrowdCelebration();
         this.audio.playGoalCheer();
@@ -1496,29 +2018,60 @@ export class Game {
 
         this.showBanner(
           `⚽ GOAL!! (${this.homeScore} - ${this.awayScore})`,
-          `${scorerName} 환상적인 월드컵 골 득점!`,
+          `${scorerName} 환상적인 월드컵 골 득점 & 세리머니!`,
           'banner-goal',
-          3.0
+          2.8
+        );
+        this.commentary.announce(
+          `골인!! ${scorer?.starName || ''} 선수의 환상적인 득점이 터집니다! 경기장이 열광의 도가니에 빠집니다!`,
+          'high'
         );
         this.updateScoreboardHUD();
         return;
       }
     }
 
-    // Keep ball inside stadium or gently bounce/throw-in from sidelines
-    if (Math.abs(bz) > Stadium.HALF_WIDTH + 0.4) {
-      this.ball.position.z = Math.sign(bz) * (Stadium.HALF_WIDTH - 0.5);
-      this.ball.velocity.z = -this.ball.velocity.z * 0.55;
-    }
-    if (Math.abs(bx) > Stadium.HALF_LENGTH + 0.4 && (Math.abs(bz) >= Stadium.GOAL_HALF_WIDTH || by >= Stadium.GOAL_HEIGHT)) {
-      this.ball.position.x = Math.sign(bx) * (Stadium.HALF_LENGTH - 0.8);
-      this.ball.velocity.x = -this.ball.velocity.x * 0.5;
+    // Out of bounds checks (only in open play)
+    if (this.matchState === 'PLAYING' || this.matchState === 'FREE_KICK_PLAY') {
+      // Sideline Throw-in
+      if (Math.abs(bz) > Stadium.HALF_WIDTH + 0.55) {
+        const throwTeam: 'HOME' | 'AWAY' = this.ball.lastTouchTeam === 'HOME' ? 'AWAY' : 'HOME';
+        this.audio.playWhistle('short');
+        this.enterThrowInSetup(throwTeam, bx, bz);
+        return;
+      }
+
+      // Goal-line Corner Kick vs Bounce
+      if (Math.abs(bx) > Stadium.HALF_LENGTH + 0.55 && (Math.abs(bz) >= Stadium.GOAL_HALF_WIDTH || by >= Stadium.GOAL_HEIGHT)) {
+        if (bx > 0 && this.ball.lastTouchTeam === 'AWAY') {
+          this.audio.playWhistle('short');
+          this.enterCornerKickSetup('HOME', bz);
+          return;
+        } else if (bx < 0 && this.ball.lastTouchTeam === 'HOME') {
+          this.audio.playWhistle('short');
+          this.enterCornerKickSetup('AWAY', bz);
+          return;
+        }
+        this.ball.position.x = Math.sign(bx) * (Stadium.HALF_LENGTH - 0.8);
+        this.ball.velocity.x = -this.ball.velocity.x * 0.5;
+      }
     }
   }
 
   private updateCamera(dt: number): void {
-    if (this.matchState === 'FOUL_CINEMATIC' && this.activeFoul) {
-      // Dramatic Referee Card Close-up Camera
+    if (this.matchState === 'REPLAY_PLAYBACK') {
+      // Dramatic Reverse Goal-Line Slow-Mo Replay Camera!
+      const goalSide = this.ball.position.x >= 0 ? 1 : -1;
+      this.camPosTarget.set(goalSide * (Stadium.HALF_LENGTH + 6.5), 4.5, 9.5);
+      this.camLookTarget.set(this.ball.position.x, 1.4, this.ball.position.z);
+    } else if (this.matchState === 'TROPHY_CELEBRATION') {
+      const t = performance.now() * 0.0008;
+      this.camPosTarget.set(Math.cos(t) * 14, 5.5, Math.sin(t) * 14);
+      this.camLookTarget.set(0, 1.8, 0);
+    } else if (this.matchState === 'VAR_REVIEW') {
+      this.camPosTarget.set(this.referee.position.x, 3.2, this.referee.position.z + 5.5);
+      this.camLookTarget.set(this.referee.position.x, 1.8, this.referee.position.z);
+    } else if (this.matchState === 'FOUL_CINEMATIC' && this.activeFoul) {
       const focus = this.activeFoul.foulPosition;
       this.camPosTarget.set(focus.x - 4.5, 6.2, focus.z + 10.5);
       this.camLookTarget.set(
@@ -1526,18 +2079,16 @@ export class Game {
         1.5,
         (focus.z + this.referee.position.z) * 0.5
       );
-    } else if (this.matchState === 'FREE_KICK_SETUP') {
-      // Behind-the-kicker 3rd-Person Free Kick Camera looking past the defensive wall at the goal
+    } else if (this.matchState === 'FREE_KICK_SETUP' || this.matchState === 'CORNER_KICK_SETUP') {
       const dir = new THREE.Vector3(Math.sin(this.setPieceAimYaw), 0, Math.cos(this.setPieceAimYaw));
       this.camPosTarget.set(
         this.ball.position.x - dir.x * 8.2,
-        3.8,
+        3.9,
         this.ball.position.z - dir.z * 8.2
       );
       const goalX = this.setPieceTeam === 'HOME' ? Stadium.HALF_LENGTH : -Stadium.HALF_LENGTH;
       this.camLookTarget.set(goalX, 2.2, 0);
     } else if (this.matchState === 'PENALTY_SETUP' || this.matchState === 'PENALTY_PLAY') {
-      // Iconic 1v1 Penalty Kick Camera behind the Penalty Spot
       const dirX = this.setPieceTeam === 'HOME' ? 1 : -1;
       this.camPosTarget.set(this.ball.position.x - dirX * 9.2, 3.6, 0);
       this.camLookTarget.set(this.ball.position.x + dirX * 12, 1.8, this.setPieceAimZ * 0.35);
@@ -1549,7 +2100,6 @@ export class Game {
       this.camPosTarget.set(this.ball.position.x * 0.35, 38, 52);
       this.camLookTarget.set(this.ball.position.x * 0.45, 0, this.ball.position.z * 0.35);
     } else {
-      // Default FIFA TV Broadcast Dynamic Follow Camera
       const bx = this.ball.position.x;
       const bz = this.ball.position.z;
       this.camPosTarget.set(bx * 0.68, 23.5, 34.5 + bz * 0.42);
@@ -1575,7 +2125,6 @@ export class Game {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Pitch dark-green radar background
     ctx.fillStyle = 'rgba(15, 42, 28, 0.86)';
     ctx.fillRect(0, 0, w, h);
 
@@ -1583,7 +2132,6 @@ export class Game {
     ctx.lineWidth = 1.5;
     ctx.strokeRect(4, 4, w - 8, h - 8);
 
-    // Midline & Center circle
     ctx.beginPath();
     ctx.moveTo(w / 2, 4);
     ctx.lineTo(w / 2, h - 4);
@@ -1596,7 +2144,16 @@ export class Game {
     const mapX = (x: number) => ((x + Stadium.HALF_LENGTH) / (Stadium.HALF_LENGTH * 2)) * (w - 8) + 4;
     const mapZ = (z: number) => ((z + Stadium.HALF_WIDTH) / (Stadium.HALF_WIDTH * 2)) * (h - 8) + 4;
 
-    // Draw Players
+    // Draw Offside Line on Radar
+    const offX = mapX(this.northLinesman.offsideLineX);
+    ctx.strokeStyle = 'rgba(250, 204, 21, 0.35)';
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(offX, 4);
+    ctx.lineTo(offX, h - 4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
     for (const p of this.players) {
       if (p.isSentOff) continue;
       const px = mapX(p.position.x);
@@ -1618,11 +2175,16 @@ export class Game {
       }
     }
 
-    // Draw Referee on Radar (Neon Yellow Diamond)
+    // Draw Referee on Radar
     const rx = mapX(this.referee.position.x);
     const rz = mapZ(this.referee.position.z);
     ctx.fillStyle = '#d4ff00';
     ctx.fillRect(rx - 3.5, rz - 3.5, 7, 7);
+
+    // Draw North & South Assistant Referees (Linesmen) on Radar
+    ctx.fillStyle = '#ff9100';
+    ctx.fillRect(mapX(this.northLinesman.position.x) - 3, 1, 6, 5);
+    ctx.fillRect(mapX(this.southLinesman.position.x) - 3, h - 6, 6, 5);
 
     // Draw World Cup Ball
     const bx = mapX(this.ball.position.x);
@@ -1647,8 +2209,8 @@ export class Game {
       if (titleEl) {
         titleEl.textContent =
           mode === 'FREE_KICK'
-            ? '🎯 프리킥 궤적 & 감아차기 설정 (조이스틱으로 방향 조준)'
-            : '🥅 페널티킥 코너 조준 (조이스틱으로 골문 타겟 이동 후 슛!)';
+            ? '🎯 세트피스 궤적 & 감아차기 설정 (조이스틱으로 방향 조준)'
+            : '🥅 페널티킥 코너 조준 (조이스틱/코너 버튼으로 타겟 이동 후 슛!)';
       }
     } else {
       if (panel) panel.classList.add('hidden');
@@ -1712,6 +2274,32 @@ export class Game {
     }
   }
 
+  public updateModeSpecificHUD(): void {
+    const modeEl = document.getElementById('hud-mode-status');
+    const nextRoundBtn = document.getElementById('btn-quick-next-round');
+    if (!modeEl) return;
+
+    if (this.gameMode === 'TOURNAMENT') {
+      const roundLabel =
+        this.tournamentRound === 1 ? '8강전(QF)' : this.tournamentRound === 2 ? '4강전(SF)' : '🏆 결승전(FINAL)';
+      modeEl.textContent = `🏆 토너먼트: ${roundLabel}`;
+      nextRoundBtn?.classList.remove('hidden');
+    } else if (this.gameMode === 'PENALTY_SHOOTOUT') {
+      const hMarks = this.shootoutHomeResults.map((r) => (r === 'O' ? '🟢' : '🔴')).join('') || '⚪';
+      const aMarks = this.shootoutAwayResults.map((r) => (r === 'O' ? '🟢' : '🔴')).join('') || '⚪';
+      modeEl.textContent = `🥅 승부차기 R${this.shootoutRound} | ${this.homeTeam.shortName}:${hMarks} vs ${this.awayTeam.shortName}:${aMarks}`;
+      nextRoundBtn?.classList.add('hidden');
+    } else if (this.gameMode === 'FREE_KICK_CHALLENGE') {
+      modeEl.textContent = `🎯 프리킥 챌린지 S${this.fkChallengeStage}/5 | 점수: ${this.fkChallengeScore} PT (최고: ${this.fkChallengeBest})`;
+      nextRoundBtn?.classList.add('hidden');
+    } else {
+      const stanceKo =
+        this.tacticalStance === 'ATTACK' ? '🔥총공격' : this.tacticalStance === 'DEFEND' ? '🛡️철벽수비' : '⚖️밸런스';
+      modeEl.textContent = `📋 전술: ${stanceKo}`;
+      nextRoundBtn?.classList.add('hidden');
+    }
+  }
+
   private updateClockHUD(): void {
     const clockEl = document.getElementById('hud-clock');
     const halfEl = document.getElementById('hud-half');
@@ -1727,14 +2315,16 @@ export class Game {
     const refEl = document.getElementById('hud-ref-status');
     if (!refEl) return;
 
-    if (this.matchState === 'FOUL_CINEMATIC') {
+    if (this.matchState === 'VAR_REVIEW') {
+      refEl.textContent = `📺 주심 VAR 온필드 리뷰 판독 중`;
+    } else if (this.matchState === 'FOUL_CINEMATIC') {
       refEl.textContent = `👨‍⚖️ 심판 파울 선언 중 (${this.activeFoul?.cardType || 'FOUL'})`;
     } else if (this.matchState === 'FREE_KICK_SETUP') {
-      refEl.textContent = `👨‍⚖️ 심판 수비벽 9.15m 관리 중 (FREE KICK)`;
+      refEl.textContent = `👨‍⚖️ 심판 배니싱 스프레이 9.15m 관리 중`;
     } else if (this.matchState === 'PENALTY_SETUP') {
-      refEl.textContent = `👨‍⚖️ 심판 페널티킥 라인 주시 중 (PENALTY)`;
+      refEl.textContent = `👨‍⚖️ 심판 페널티킥 라인 주시 중`;
     } else {
-      refEl.textContent = `👨‍⚖️ 심판 추적 거리: ${this.referee.currentDistanceToBall.toFixed(1)}m`;
+      refEl.textContent = `👨‍⚖️ 주심 ${this.referee.currentDistanceToBall.toFixed(1)}m • 🚩 부심 오프사이드 감시 중`;
     }
   }
 

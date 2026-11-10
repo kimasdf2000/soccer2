@@ -12,6 +12,7 @@ export class TouchController {
   public triggerThrough: boolean = false;
   public triggerSlideTackle: boolean = false;
   public triggerSwitchPlayer: boolean = false;
+  public triggerSkillOrTactics: boolean = false;
   public isPressingDefense: boolean = false;
 
   // Set-piece specific controls (Free Kick & Penalty Kick)
@@ -48,6 +49,7 @@ export class TouchController {
     const btnShoot = document.getElementById('btn-shoot')!;
     const btnPass = document.getElementById('btn-pass')!;
     const btnThrough = document.getElementById('btn-through')!;
+    const btnSkill = document.getElementById('btn-skill');
 
     if (isSetPiece) {
       btnShoot.innerHTML = `<span class="btn-icon">🎯</span><span class="btn-title">감아차기 슛</span><span class="btn-sub">HOLD 게이지</span>`;
@@ -56,6 +58,9 @@ export class TouchController {
       btnPass.className = 'action-btn btn-pass';
       btnThrough.innerHTML = `<span class="btn-icon">🌀</span><span class="btn-title">무회전 강슛</span><span class="btn-sub">KNUCKLE</span>`;
       btnThrough.className = 'action-btn btn-through';
+      if (btnSkill) {
+        btnSkill.innerHTML = `<span class="btn-icon">🏔️</span><span class="btn-title">칩슛/로빙</span><span class="btn-sub">PANENKA</span>`;
+      }
     } else if (isDefense) {
       btnShoot.innerHTML = `<span class="btn-icon">💥</span><span class="btn-title">슬라이딩 태클</span><span class="btn-sub">파울/카드 주의</span>`;
       btnShoot.className = 'action-btn btn-tackle';
@@ -63,6 +68,9 @@ export class TouchController {
       btnPass.className = 'action-btn btn-press';
       btnThrough.innerHTML = `<span class="btn-icon">🔄</span><span class="btn-title">선수 전환</span><span class="btn-sub">SWITCH</span>`;
       btnThrough.className = 'action-btn btn-switch';
+      if (btnSkill) {
+        btnSkill.innerHTML = `<span class="btn-icon">📋</span><span class="btn-title">전술 변경</span><span class="btn-sub">공격·수비</span>`;
+      }
     } else {
       btnShoot.innerHTML = `<span class="btn-icon">⚽</span><span class="btn-title">슛 (SHOOT)</span><span class="btn-sub">길게 눌러 파워</span>`;
       btnShoot.className = 'action-btn btn-shoot';
@@ -70,6 +78,9 @@ export class TouchController {
       btnPass.className = 'action-btn btn-pass';
       btnThrough.innerHTML = `<span class="btn-icon">⚡</span><span class="btn-title">스루 패스</span><span class="btn-sub">공간 침투</span>`;
       btnThrough.className = 'action-btn btn-through';
+      if (btnSkill) {
+        btnSkill.innerHTML = `<span class="btn-icon">✨</span><span class="btn-title">개인기 턴</span><span class="btn-sub">마르세유 360°</span>`;
+      }
     }
   }
 
@@ -274,6 +285,16 @@ export class TouchController {
     btnSprint.addEventListener('touchend', endSprint, { passive: false });
     btnSprint.addEventListener('mousedown', startSprint);
     btnSprint.addEventListener('mouseup', endSprint);
+
+    const btnSkill = document.getElementById('btn-skill');
+    if (btnSkill) {
+      const onSkill = (e: Event) => {
+        e.preventDefault();
+        this.triggerSkillOrTactics = true;
+      };
+      btnSkill.addEventListener('touchstart', onSkill, { passive: false });
+      btnSkill.addEventListener('mousedown', onSkill);
+    }
   }
 
   private bindSetPieceControls(): void {
@@ -331,6 +352,9 @@ export class TouchController {
         } else {
           this.triggerThrough = true;
         }
+      }
+      if (e.code === 'KeyE') {
+        this.triggerSkillOrTactics = true;
       }
     });
 

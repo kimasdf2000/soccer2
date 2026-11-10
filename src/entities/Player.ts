@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TeamConfig } from '../types';
+import { StarPlayerProfile, TeamConfig } from '../types';
 
 export const TEAMS: Record<string, TeamConfig> = {
   KOR: {
@@ -11,7 +11,25 @@ export const TEAMS: Record<string, TeamConfig> = {
     secondaryColor: 0x0f172a,
     shortsColor: 0x0f172a,
     gkColor: 0x10b981,
-    uiHex: '#e11d48'
+    uiHex: '#e11d48',
+    roster: [
+      { num: 1, name: 'JO H.W.', role: 'GK', speedStat: 1.0, shootStat: 0.9, curveStat: 0.9 },
+      { num: 4, name: 'KIM M.J.', role: 'DF', speedStat: 1.08, shootStat: 0.92, curveStat: 0.9 },
+      { num: 19, name: 'KIM Y.G.', role: 'DF', speedStat: 0.98, shootStat: 0.9, curveStat: 0.9 },
+      { num: 2, name: 'SEOL Y.W.', role: 'DF', speedStat: 1.06, shootStat: 0.92, curveStat: 0.95 },
+      { num: 3, name: 'KIM J.S.', role: 'DF', speedStat: 1.03, shootStat: 0.94, curveStat: 1.02 },
+      { num: 6, name: 'HWANG I.B.', role: 'MF', speedStat: 1.02, shootStat: 1.04, curveStat: 1.08 },
+      { num: 10, name: 'LEE K.I.', role: 'MF', speedStat: 1.06, shootStat: 1.12, curveStat: 1.24 },
+      { num: 8, name: 'PAIK S.H.', role: 'MF', speedStat: 1.04, shootStat: 1.1, curveStat: 1.05 },
+      { num: 11, name: 'HWANG H.C.', role: 'FW', speedStat: 1.14, shootStat: 1.08, curveStat: 1.02 },
+      { num: 9, name: 'CHO G.S.', role: 'FW', speedStat: 1.03, shootStat: 1.12, curveStat: 1.0 },
+      { num: 7, name: 'SON H.M.', role: 'FW', speedStat: 1.17, shootStat: 1.2, curveStat: 1.22 }
+    ],
+    bench: [
+      { num: 14, name: 'YANG M.H.', role: 'FW', speedStat: 1.15, shootStat: 1.08, curveStat: 1.1 },
+      { num: 17, name: 'JEONG W.Y.', role: 'MF', speedStat: 1.08, shootStat: 1.05, curveStat: 1.08 },
+      { num: 18, name: 'OH H.G.', role: 'FW', speedStat: 1.09, shootStat: 1.14, curveStat: 1.02 }
+    ]
   },
   BRA: {
     id: 'BRA',
@@ -22,7 +40,24 @@ export const TEAMS: Record<string, TeamConfig> = {
     secondaryColor: 0x15803d,
     shortsColor: 0x1d4ed8,
     gkColor: 0x06b6d4,
-    uiHex: '#eab308'
+    uiHex: '#eab308',
+    roster: [
+      { num: 1, name: 'ALISSON', role: 'GK', speedStat: 1.02, shootStat: 0.9, curveStat: 0.9 },
+      { num: 4, name: 'MARQUINHOS', role: 'DF', speedStat: 1.06, shootStat: 0.92, curveStat: 0.92 },
+      { num: 3, name: 'MILITAO', role: 'DF', speedStat: 1.1, shootStat: 0.92, curveStat: 0.9 },
+      { num: 2, name: 'DANILO', role: 'DF', speedStat: 1.02, shootStat: 0.95, curveStat: 0.95 },
+      { num: 6, name: 'WENDELL', role: 'DF', speedStat: 1.05, shootStat: 0.92, curveStat: 0.98 },
+      { num: 5, name: 'BRUNO G.', role: 'MF', speedStat: 1.03, shootStat: 1.05, curveStat: 1.08 },
+      { num: 8, name: 'PAQUETA', role: 'MF', speedStat: 1.04, shootStat: 1.06, curveStat: 1.14 },
+      { num: 10, name: 'RODRYGO', role: 'MF', speedStat: 1.13, shootStat: 1.12, curveStat: 1.16 },
+      { num: 11, name: 'RAPHINHA', role: 'FW', speedStat: 1.12, shootStat: 1.14, curveStat: 1.18 },
+      { num: 9, name: 'ENDRICK', role: 'FW', speedStat: 1.12, shootStat: 1.16, curveStat: 1.05 },
+      { num: 7, name: 'VINICIUS JR', role: 'FW', speedStat: 1.18, shootStat: 1.16, curveStat: 1.2 }
+    ],
+    bench: [
+      { num: 20, name: 'SAVINHO', role: 'FW', speedStat: 1.15, shootStat: 1.08, curveStat: 1.15 },
+      { num: 18, name: 'CASEMIRO', role: 'MF', speedStat: 0.98, shootStat: 1.12, curveStat: 1.04 }
+    ]
   },
   ARG: {
     id: 'ARG',
@@ -33,7 +68,24 @@ export const TEAMS: Record<string, TeamConfig> = {
     secondaryColor: 0xffffff,
     shortsColor: 0x0f172a,
     gkColor: 0xf97316,
-    uiHex: '#0284c7'
+    uiHex: '#0284c7',
+    roster: [
+      { num: 1, name: 'E. MARTINEZ', role: 'GK', speedStat: 1.02, shootStat: 0.92, curveStat: 0.9 },
+      { num: 4, name: 'C. ROMERO', role: 'DF', speedStat: 1.07, shootStat: 0.92, curveStat: 0.9 },
+      { num: 3, name: 'OTAMENDI', role: 'DF', speedStat: 0.98, shootStat: 0.94, curveStat: 0.9 },
+      { num: 2, name: 'MOLINA', role: 'DF', speedStat: 1.08, shootStat: 0.95, curveStat: 0.98 },
+      { num: 6, name: 'TAGLIAFICO', role: 'DF', speedStat: 1.04, shootStat: 0.92, curveStat: 0.95 },
+      { num: 7, name: 'DE PAUL', role: 'MF', speedStat: 1.06, shootStat: 1.04, curveStat: 1.06 },
+      { num: 8, name: 'ENZO F.', role: 'MF', speedStat: 1.03, shootStat: 1.08, curveStat: 1.12 },
+      { num: 20, name: 'MAC ALLISTER', role: 'MF', speedStat: 1.04, shootStat: 1.1, curveStat: 1.14 },
+      { num: 11, name: 'DI MARIA', role: 'FW', speedStat: 1.08, shootStat: 1.12, curveStat: 1.24 },
+      { num: 9, name: 'J. ALVAREZ', role: 'FW', speedStat: 1.12, shootStat: 1.15, curveStat: 1.1 },
+      { num: 10, name: 'L. MESSI', role: 'FW', speedStat: 1.12, shootStat: 1.2, curveStat: 1.25 }
+    ],
+    bench: [
+      { num: 22, name: 'LAUTARO M.', role: 'FW', speedStat: 1.1, shootStat: 1.18, curveStat: 1.08 },
+      { num: 17, name: 'GARNACHO', role: 'FW', speedStat: 1.16, shootStat: 1.1, curveStat: 1.12 }
+    ]
   },
   FRA: {
     id: 'FRA',
@@ -44,7 +96,24 @@ export const TEAMS: Record<string, TeamConfig> = {
     secondaryColor: 0xfbbf24,
     shortsColor: 0xffffff,
     gkColor: 0xa855f7,
-    uiHex: '#1d4ed8'
+    uiHex: '#1d4ed8',
+    roster: [
+      { num: 1, name: 'MAIGNAN', role: 'GK', speedStat: 1.02, shootStat: 0.9, curveStat: 0.9 },
+      { num: 4, name: 'SALIBA', role: 'DF', speedStat: 1.09, shootStat: 0.9, curveStat: 0.9 },
+      { num: 5, name: 'UPAMECANO', role: 'DF', speedStat: 1.08, shootStat: 0.92, curveStat: 0.9 },
+      { num: 2, name: 'KOUNDE', role: 'DF', speedStat: 1.08, shootStat: 0.94, curveStat: 0.95 },
+      { num: 3, name: 'THEO H.', role: 'DF', speedStat: 1.15, shootStat: 1.06, curveStat: 1.05 },
+      { num: 8, name: 'TCHOUAMENI', role: 'MF', speedStat: 1.04, shootStat: 1.1, curveStat: 1.02 },
+      { num: 6, name: 'CAMAVINGA', role: 'MF', speedStat: 1.09, shootStat: 1.02, curveStat: 1.05 },
+      { num: 7, name: 'GRIEZMANN', role: 'MF', speedStat: 1.06, shootStat: 1.15, curveStat: 1.2 },
+      { num: 11, name: 'DEMBELE', role: 'FW', speedStat: 1.16, shootStat: 1.08, curveStat: 1.15 },
+      { num: 9, name: 'THURAM', role: 'FW', speedStat: 1.1, shootStat: 1.12, curveStat: 1.02 },
+      { num: 10, name: 'MBAPPE', role: 'FW', speedStat: 1.18, shootStat: 1.2, curveStat: 1.16 }
+    ],
+    bench: [
+      { num: 14, name: 'BARCOLA', role: 'FW', speedStat: 1.16, shootStat: 1.08, curveStat: 1.12 },
+      { num: 13, name: 'KANTE', role: 'MF', speedStat: 1.12, shootStat: 0.98, curveStat: 1.0 }
+    ]
   },
   ENG: {
     id: 'ENG',
@@ -55,7 +124,24 @@ export const TEAMS: Record<string, TeamConfig> = {
     secondaryColor: 0x1e3a8a,
     shortsColor: 0x1e3a8a,
     gkColor: 0xeab308,
-    uiHex: '#64748b'
+    uiHex: '#64748b',
+    roster: [
+      { num: 1, name: 'PICKFORD', role: 'GK', speedStat: 1.0, shootStat: 0.92, curveStat: 0.9 },
+      { num: 5, name: 'STONES', role: 'DF', speedStat: 1.03, shootStat: 0.94, curveStat: 0.95 },
+      { num: 6, name: 'GUEHI', role: 'DF', speedStat: 1.06, shootStat: 0.9, curveStat: 0.9 },
+      { num: 2, name: 'WALKER', role: 'DF', speedStat: 1.15, shootStat: 0.95, curveStat: 0.94 },
+      { num: 3, name: 'SHAW', role: 'DF', speedStat: 1.04, shootStat: 0.98, curveStat: 1.06 },
+      { num: 4, name: 'RICE', role: 'MF', speedStat: 1.05, shootStat: 1.08, curveStat: 1.04 },
+      { num: 10, name: 'BELLINGHAM', role: 'MF', speedStat: 1.1, shootStat: 1.16, curveStat: 1.14 },
+      { num: 11, name: 'FODEN', role: 'MF', speedStat: 1.11, shootStat: 1.15, curveStat: 1.18 },
+      { num: 7, name: 'SAKA', role: 'FW', speedStat: 1.14, shootStat: 1.14, curveStat: 1.18 },
+      { num: 8, name: 'PALMER', role: 'FW', speedStat: 1.07, shootStat: 1.16, curveStat: 1.2 },
+      { num: 9, name: 'H. KANE', role: 'FW', speedStat: 1.02, shootStat: 1.2, curveStat: 1.15 }
+    ],
+    bench: [
+      { num: 19, name: 'WATKINS', role: 'FW', speedStat: 1.13, shootStat: 1.14, curveStat: 1.04 },
+      { num: 18, name: 'ALEXANDER-A.', role: 'MF', speedStat: 1.04, shootStat: 1.12, curveStat: 1.25 }
+    ]
   },
   GER: {
     id: 'GER',
@@ -66,7 +152,23 @@ export const TEAMS: Record<string, TeamConfig> = {
     secondaryColor: 0x111827,
     shortsColor: 0x111827,
     gkColor: 0xef4444,
-    uiHex: '#334155'
+    uiHex: '#334155',
+    roster: [
+      { num: 1, name: 'NEUER', role: 'GK', speedStat: 1.02, shootStat: 0.94, curveStat: 0.92 },
+      { num: 4, name: 'RUDIGER', role: 'DF', speedStat: 1.12, shootStat: 0.94, curveStat: 0.9 },
+      { num: 5, name: 'TAH', role: 'DF', speedStat: 1.05, shootStat: 0.9, curveStat: 0.9 },
+      { num: 6, name: 'KIMMICH', role: 'DF', speedStat: 1.04, shootStat: 1.06, curveStat: 1.16 },
+      { num: 3, name: 'MITTELSTADT', role: 'DF', speedStat: 1.06, shootStat: 0.98, curveStat: 1.04 },
+      { num: 8, name: 'KROOS', role: 'MF', speedStat: 0.98, shootStat: 1.16, curveStat: 1.24 },
+      { num: 21, name: 'GUNDOGAN', role: 'MF', speedStat: 1.02, shootStat: 1.12, curveStat: 1.14 },
+      { num: 10, name: 'MUSIALA', role: 'MF', speedStat: 1.15, shootStat: 1.14, curveStat: 1.18 },
+      { num: 7, name: 'WIRTZ', role: 'FW', speedStat: 1.12, shootStat: 1.15, curveStat: 1.2 },
+      { num: 11, name: 'SANE', role: 'FW', speedStat: 1.17, shootStat: 1.14, curveStat: 1.12 },
+      { num: 9, name: 'HAVERTZ', role: 'FW', speedStat: 1.08, shootStat: 1.14, curveStat: 1.1 }
+    ],
+    bench: [
+      { num: 14, name: 'FULLKRUG', role: 'FW', speedStat: 1.0, shootStat: 1.18, curveStat: 1.02 }
+    ]
   }
 };
 
@@ -78,10 +180,18 @@ export class Player {
   public teamConfig: TeamConfig;
   public role: PlayerRole;
   public shirtNumber: number;
+  public starName: string;
   public nameLabel: string;
+
+  // Individual Star Attributes & Stamina
+  public speedStat: number = 1.0;
+  public shootStat: number = 1.0;
+  public curveStat: number = 1.0;
+  public stamina: number = 100; // 0 to 100
 
   public group: THREE.Group;
   public bodyGroup: THREE.Group;
+  private torsoMesh: THREE.Mesh;
   private leftLeg: THREE.Group;
   private rightLeg: THREE.Group;
   private leftArm: THREE.Group;
@@ -89,6 +199,12 @@ export class Player {
   private activeRing: THREE.Mesh;
   private overheadArrow: THREE.Mesh;
   private yellowCardBadge: THREE.Mesh;
+
+  // 3D Overhead Nameplate & Stamina Sprite
+  private nameSprite: THREE.Sprite;
+  private nameCanvas: HTMLCanvasElement;
+  private nameTexture: THREE.CanvasTexture;
+  private lastHudKey: string = '';
 
   public position: THREE.Vector3 = new THREE.Vector3();
   public velocity: THREE.Vector3 = new THREE.Vector3();
@@ -114,6 +230,12 @@ export class Player {
   public diveDirZ: number = 0;
   public gkSaveCooldown: number = 0;
 
+  // Skill Move & Celebration & Throw-in States
+  public skillTimer: number = 0;
+  public skillCooldown: number = 0;
+  public celebrationTimer: number = 0;
+  public isThrowInTaker: boolean = false;
+
   public isControlled: boolean = false;
   public inDefensiveWall: boolean = false;
 
@@ -124,17 +246,20 @@ export class Player {
     id: string,
     team: 'HOME' | 'AWAY',
     teamConfig: TeamConfig,
-    role: PlayerRole,
-    shirtNumber: number,
+    profile: StarPlayerProfile,
     homeX: number,
     homeZ: number
   ) {
     this.id = id;
     this.team = team;
     this.teamConfig = teamConfig;
-    this.role = role;
-    this.shirtNumber = shirtNumber;
-    this.nameLabel = `${teamConfig.shortName} #${shirtNumber}`;
+    this.role = profile.role;
+    this.shirtNumber = profile.num;
+    this.starName = profile.name;
+    this.speedStat = profile.speedStat;
+    this.shootStat = profile.shootStat;
+    this.curveStat = profile.curveStat;
+    this.nameLabel = `${profile.name} (#${profile.num})`;
 
     this.homePosition.set(homeX, 0, homeZ);
     this.position.set(homeX, 0, homeZ);
@@ -144,22 +269,21 @@ export class Player {
     this.bodyGroup = new THREE.Group();
     this.group.add(this.bodyGroup);
 
-    // Build Articulated Humanoid Mesh
-    const isGK = role === 'GK';
+    const isGK = this.role === 'GK';
     const jerseyColor = isGK ? teamConfig.gkColor : teamConfig.primaryColor;
     const trimColor = teamConfig.secondaryColor;
     const shortsHex = isGK ? 0x111827 : teamConfig.shortsColor;
 
     // Torso with Jersey Number Texture
-    const jerseyTex = this.createJerseyTexture(jerseyColor, trimColor, shirtNumber);
+    const jerseyTex = this.createJerseyTexture(jerseyColor, trimColor, this.shirtNumber);
     const torsoMat = new THREE.MeshStandardMaterial({
       map: jerseyTex,
       roughness: 0.65
     });
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.92, 0.42), torsoMat);
-    torso.position.y = 1.38;
-    torso.castShadow = true;
-    this.bodyGroup.add(torso);
+    this.torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.92, 0.42), torsoMat);
+    this.torsoMesh.position.y = 1.38;
+    this.torsoMesh.castShadow = true;
+    this.bodyGroup.add(this.torsoMesh);
 
     // Shorts
     const shortsMat = new THREE.MeshStandardMaterial({ color: shortsHex, roughness: 0.7 });
@@ -171,7 +295,7 @@ export class Player {
     // Head & Hair
     const skinTones = [0xf1c27d, 0xe0ac69, 0xc68642, 0xffdbac, 0x8d5524];
     const skinMat = new THREE.MeshStandardMaterial({
-      color: skinTones[shirtNumber % skinTones.length],
+      color: skinTones[this.shirtNumber % skinTones.length],
       roughness: 0.6
     });
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 16), skinMat);
@@ -180,7 +304,7 @@ export class Player {
     this.bodyGroup.add(head);
 
     const hairMat = new THREE.MeshStandardMaterial({
-      color: shirtNumber % 3 === 0 ? 0x27272a : shirtNumber % 3 === 1 ? 0x451a03 : 0x111827
+      color: this.shirtNumber % 3 === 0 ? 0x27272a : this.shirtNumber % 3 === 1 ? 0x451a03 : 0x111827
     });
     const hair = new THREE.Mesh(
       new THREE.SphereGeometry(0.29, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.58),
@@ -219,29 +343,60 @@ export class Player {
     this.group.add(this.activeRing);
 
     // Overhead Active Marker (Inverted cone)
-    const arrowGeo = new THREE.ConeGeometry(0.24, 0.42, 4);
+    const arrowGeo = new THREE.ConeGeometry(0.22, 0.38, 4);
     arrowGeo.rotateX(Math.PI);
     const arrowMat = new THREE.MeshBasicMaterial({
       color: team === 'HOME' ? 0x00e5ff : 0xff4081
     });
     this.overheadArrow = new THREE.Mesh(arrowGeo, arrowMat);
-    this.overheadArrow.position.y = 2.95;
+    this.overheadArrow.position.y = 2.85;
     this.overheadArrow.visible = false;
     this.group.add(this.overheadArrow);
 
-    // Overhead Yellow Card Warning Indicator (visible when player has 1 yellow card)
+    // Overhead Yellow Card Warning Indicator
     const ycGeo = new THREE.PlaneGeometry(0.28, 0.38);
     const ycMat = new THREE.MeshBasicMaterial({
       color: 0xffea00,
       side: THREE.DoubleSide
     });
     this.yellowCardBadge = new THREE.Mesh(ycGeo, ycMat);
-    this.yellowCardBadge.position.set(0.45, 2.75, 0);
+    this.yellowCardBadge.position.set(0.55, 2.75, 0);
     this.yellowCardBadge.visible = false;
     this.group.add(this.yellowCardBadge);
 
+    // 3D Overhead Star Name & Stamina Bar Sprite
+    this.nameCanvas = document.createElement('canvas');
+    this.nameCanvas.width = 256;
+    this.nameCanvas.height = 72;
+    this.nameTexture = new THREE.CanvasTexture(this.nameCanvas);
+    this.nameSprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: this.nameTexture, transparent: true, depthTest: false })
+    );
+    this.nameSprite.scale.set(2.9, 0.82, 1);
+    this.nameSprite.position.set(0, 3.45, 0);
+    this.nameSprite.visible = false;
+    this.group.add(this.nameSprite);
+
     this.group.position.copy(this.position);
     scene.add(this.group);
+  }
+
+  public substituteWithBenchProfile(benchProfile: StarPlayerProfile): void {
+    this.shirtNumber = benchProfile.num;
+    this.starName = benchProfile.name;
+    this.speedStat = benchProfile.speedStat;
+    this.shootStat = benchProfile.shootStat;
+    this.curveStat = benchProfile.curveStat;
+    this.nameLabel = `${benchProfile.name} (#${benchProfile.num})`;
+    this.stamina = 100;
+    this.yellowCards = 0;
+
+    const isGK = this.role === 'GK';
+    const jerseyColor = isGK ? this.teamConfig.gkColor : this.teamConfig.primaryColor;
+    const jerseyTex = this.createJerseyTexture(jerseyColor, this.teamConfig.secondaryColor, this.shirtNumber);
+    (this.torsoMesh.material as THREE.MeshStandardMaterial).map = jerseyTex;
+    (this.torsoMesh.material as THREE.MeshStandardMaterial).needsUpdate = true;
+    this.lastHudKey = '';
   }
 
   private createJerseyTexture(primaryHex: number, secondaryHex: number, num: number): THREE.CanvasTexture {
@@ -256,12 +411,10 @@ export class Player {
     ctx.fillStyle = pColor;
     ctx.fillRect(0, 0, 256, 256);
 
-    // Trim stripes
     ctx.fillStyle = sColor;
     ctx.fillRect(0, 0, 256, 28);
     ctx.fillRect(0, 224, 256, 32);
 
-    // High-contrast Shirt Number
     ctx.fillStyle = primaryHex > 0xaaaaaa ? '#0f172a' : '#ffffff';
     ctx.font = '900 120px sans-serif';
     ctx.textAlign = 'center';
@@ -312,6 +465,20 @@ export class Player {
     return g;
   }
 
+  public triggerSkillMove(): boolean {
+    if (this.skillTimer > 0 || this.skillCooldown > 0 || this.fallenTimer > 0 || this.slideTimer > 0) {
+      return false;
+    }
+    this.skillTimer = 0.52;
+    this.skillCooldown = 1.4;
+    this.stamina = Math.max(10, this.stamina - 6);
+    return true;
+  }
+
+  public triggerGoalCelebration(duration: number = 3.0): void {
+    this.celebrationTimer = duration;
+  }
+
   public triggerSlideTackle(dir: THREE.Vector3): boolean {
     if (this.slideTimer > 0 || this.slideCooldown > 0 || this.fallenTimer > 0 || this.isSentOff) {
       return false;
@@ -319,6 +486,7 @@ export class Player {
     this.slideTimer = 0.48;
     this.slideCooldown = 1.15;
     this.slideHasDealtContact = false;
+    this.stamina = Math.max(5, this.stamina - 5);
 
     if (dir.lengthSq() > 0.01) {
       this.slideDir.copy(dir).normalize();
@@ -348,7 +516,13 @@ export class Player {
     }
   }
 
-  public update(dt: number): void {
+  public getEffectiveSpeedMultiplier(isSprinting: boolean): number {
+    const staminaFactor = 0.74 + 0.26 * (this.stamina / 100);
+    const skillBoost = this.skillTimer > 0 ? 1.28 : 1.0;
+    return this.speedStat * (isSprinting ? staminaFactor : 1.0) * skillBoost;
+  }
+
+  public update(dt: number, isSprinting: boolean = false): void {
     if (this.isSentOff) {
       this.group.visible = false;
       return;
@@ -356,10 +530,33 @@ export class Player {
     this.group.visible = true;
 
     if (this.slideCooldown > 0) this.slideCooldown = Math.max(0, this.slideCooldown - dt);
+    if (this.skillCooldown > 0) this.skillCooldown = Math.max(0, this.skillCooldown - dt);
     if (this.kickAnimTimer > 0) this.kickAnimTimer = Math.max(0, this.kickAnimTimer - dt);
     if (this.gkSaveCooldown > 0) this.gkSaveCooldown = Math.max(0, this.gkSaveCooldown - dt);
 
-    // Handle Fallen (Fouled) State
+    // Stamina drain / recovery
+    const moveSpd = Math.hypot(this.velocity.x, this.velocity.z);
+    if (isSprinting && moveSpd > 6.5) {
+      this.stamina = Math.max(8, this.stamina - dt * 5.8);
+    } else {
+      this.stamina = Math.min(100, this.stamina + dt * 2.4);
+    }
+
+    // Goal Celebration Animation (Knee Slide + Double Arm Uppercut Jump!)
+    if (this.celebrationTimer > 0) {
+      this.celebrationTimer = Math.max(0, this.celebrationTimer - dt);
+      const t = performance.now() * 0.012;
+      this.bodyGroup.position.y = Math.abs(Math.sin(t)) * 0.85;
+      this.leftArm.rotation.x = -Math.PI * 0.85;
+      this.rightArm.rotation.x = -Math.PI * 0.85;
+      this.bodyGroup.rotation.y += dt * 3.5;
+      this.position.addScaledVector(this.velocity, dt * 0.5);
+      this.group.position.copy(this.position);
+      this.syncIndicators();
+      return;
+    }
+
+    // Fallen (Fouled) State
     if (this.fallenTimer > 0) {
       this.fallenTimer = Math.max(0, this.fallenTimer - dt);
       this.bodyGroup.rotation.x = Math.PI * 0.46;
@@ -368,7 +565,7 @@ export class Player {
       return;
     }
 
-    // Handle GK Horizontal Dive
+    // GK Horizontal Dive
     if (this.diveTimer > 0) {
       this.diveTimer = Math.max(0, this.diveTimer - dt);
       this.position.z += this.diveDirZ * 9.5 * dt;
@@ -382,20 +579,18 @@ export class Player {
       this.bodyGroup.rotation.z = 0;
     }
 
-    // Handle Slide Tackle Lunging
+    // Slide Tackle Lunging
     if (this.slideTimer > 0) {
       this.slideTimer = Math.max(0, this.slideTimer - dt);
       const slideSpeed = 13.8 * (0.4 + (this.slideTimer / 0.48) * 0.6);
       this.velocity.set(this.slideDir.x * slideSpeed, 0, this.slideDir.z * slideSpeed);
       this.position.addScaledVector(this.velocity, dt);
 
-      // Pitch body backward into classic slide tackle pose
       this.bodyGroup.rotation.x = -Math.PI * 0.38;
       this.bodyGroup.position.y = 0.18;
       this.rightLeg.rotation.x = -0.75;
       this.leftLeg.rotation.x = 0.45;
     } else {
-      // Normal upright posture
       this.bodyGroup.rotation.x = 0;
 
       // Defensive Wall Jump
@@ -424,6 +619,12 @@ export class Player {
         this.rightArm.rotation.x *= 0.85;
       }
 
+      if (this.isThrowInTaker) {
+        // Hold ball overhead with both hands
+        this.leftArm.rotation.x = -Math.PI * 0.85;
+        this.rightArm.rotation.x = -Math.PI * 0.85;
+      }
+
       if (this.kickAnimTimer > 0) {
         this.rightLeg.rotation.x = -1.15 * (this.kickAnimTimer / 0.25);
       }
@@ -434,21 +635,69 @@ export class Player {
     this.position.z = THREE.MathUtils.clamp(this.position.z, -38, 38);
 
     this.group.position.copy(this.position);
-    this.bodyGroup.rotation.y = this.facingAngle;
+
+    // Marseille 360° Skill Spin visual rotation!
+    if (this.skillTimer > 0) {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      const spinProgress = (0.52 - this.skillTimer) / 0.52;
+      this.bodyGroup.rotation.y = this.facingAngle + spinProgress * Math.PI * 2;
+    } else {
+      this.bodyGroup.rotation.y = this.facingAngle;
+    }
+
     this.syncIndicators();
   }
 
   private syncIndicators(): void {
     this.activeRing.visible = this.isControlled;
     this.overheadArrow.visible = this.isControlled;
+    this.nameSprite.visible = this.isControlled || this.celebrationTimer > 0;
+
     if (this.isControlled) {
-      this.overheadArrow.position.y = 2.95 + Math.sin(performance.now() * 0.008) * 0.14;
+      this.overheadArrow.position.y = 2.85 + Math.sin(performance.now() * 0.008) * 0.12;
       this.overheadArrow.rotation.y += 0.04;
+      this.renderOverheadNameAndStamina();
     }
 
     this.yellowCardBadge.visible = this.yellowCards === 1 && !this.redCard;
     if (this.yellowCardBadge.visible) {
       this.yellowCardBadge.rotation.y += 0.03;
     }
+  }
+
+  private renderOverheadNameAndStamina(): void {
+    const roundedStam = Math.round(this.stamina / 4) * 4;
+    const key = `${this.starName}|${this.shirtNumber}|${roundedStam}|${this.yellowCards}|${this.skillTimer > 0}`;
+    if (this.lastHudKey === key) return;
+    this.lastHudKey = key;
+
+    const ctx = this.nameCanvas.getContext('2d')!;
+    ctx.clearRect(0, 0, 256, 72);
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    ctx.beginPath();
+    ctx.roundRect(18, 6, 220, 56, 12);
+    ctx.fill();
+
+    ctx.strokeStyle = this.skillTimer > 0 ? '#facc15' : '#00e5ff';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Star Name & Number
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 20px sans-serif';
+    ctx.textAlign = 'center';
+    const label = `${this.yellowCards > 0 ? '🟨 ' : ''}${this.starName} #${this.shirtNumber}${this.skillTimer > 0 ? ' ✨' : ''}`;
+    ctx.fillText(label, 128, 30);
+
+    // Stamina Bar
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.fillRect(38, 42, 180, 10);
+
+    const stamPct = Math.max(0.05, this.stamina / 100);
+    ctx.fillStyle = stamPct > 0.5 ? '#00e676' : stamPct > 0.25 ? '#facc15' : '#ff1744';
+    ctx.fillRect(38, 42, 180 * stamPct, 10);
+
+    this.nameTexture.needsUpdate = true;
   }
 }

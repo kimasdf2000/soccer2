@@ -346,6 +346,20 @@ export class Referee {
     this.triggerWhistleVisual();
   }
 
+  public updateVarSignal(dt: number): void {
+    this.velocity.set(0, 0, 0);
+    this.handCardMesh.visible = false;
+    this.updateOverheadBadge('📺 VAR REVIEW...', '#38bdf8', '#0f172a');
+
+    // Referee draws the TV box with both arms in front of chest
+    const t = performance.now() * 0.008;
+    this.leftArm.rotation.x = -Math.PI * 0.52 + Math.sin(t) * 0.22;
+    this.rightArm.rotation.x = -Math.PI * 0.52 + Math.cos(t) * 0.22;
+    this.updateWhistleWave(dt);
+    this.group.position.copy(this.position);
+    this.bodyGroup.rotation.y = this.facingAngle;
+  }
+
   public updateFoulSequence(dt: number, offender: Player): void {
     this.cardSequenceElapsed += dt;
 

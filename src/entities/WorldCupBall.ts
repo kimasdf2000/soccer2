@@ -69,6 +69,7 @@ export class WorldCupBall {
   public position: THREE.Vector3 = new THREE.Vector3(0, 0.42, 0);
   public velocity: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
   public spin: THREE.Vector3 = new THREE.Vector3(0, 0, 0); // Angular velocity (rad/s)
+  public windForce: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
   public radius: number = 0.42;
 
   public currentBallId: WorldCupBallId = 'al_rihla';
@@ -414,6 +415,10 @@ export class WorldCupBall {
       if (this.position.y > this.radius || this.velocity.y > 0) {
         this.velocity.y -= gravity * dt;
 
+        // Wind acceleration when airborne
+        this.velocity.x += this.windForce.x * dt;
+        this.velocity.z += this.windForce.z * dt;
+
         // Magnus Effect (Spin Curve in air: F_m = spin x velocity)
         if (Math.abs(this.spin.y) > 0.05) {
           const magnusAccelX = -this.spin.y * this.velocity.z * 0.085;
@@ -530,6 +535,8 @@ export class WorldCupBall {
       posAttr.setXYZ(i, simPos.x, simPos.y, simPos.z);
 
       simVel.y -= gravity * dt;
+      simVel.x += this.windForce.x * dt;
+      simVel.z += this.windForce.z * dt;
       if (Math.abs(effSpinY) > 0.05) {
         simVel.x += -effSpinY * simVel.z * 0.085 * dt;
         simVel.z += effSpinY * simVel.x * 0.085 * dt;
