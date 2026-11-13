@@ -1,4 +1,14 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
+interface CrowdMemberData {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  scale: number;
+  phase: number;
+}
 
 export class Stadium {
   public static readonly HALF_LENGTH = 52; // X: -52 to +52 (104m length)
@@ -13,8 +23,12 @@ export class Stadium {
   public group: THREE.Group;
   private leftGoalNet!: THREE.Mesh;
   private rightGoalNet!: THREE.Mesh;
-  private crowdMesh!: THREE.InstancedMesh;
-  private crowdBaseMatrices: THREE.Matrix4[] = [];
+  private crowdTorsoMesh!: THREE.InstancedMesh;
+  private crowdHeadMesh!: THREE.InstancedMesh;
+  private crowdHairMesh!: THREE.InstancedMesh;
+  private crowdArmsMesh!: THREE.InstancedMesh;
+  private crowdData: CrowdMemberData[] = [];
+  private crowdWasExcited: boolean = false;
   private goalExcitementTimer: number = 0;
 
   // Vanishing Spray, Offside Laser Line, Free Kick Challenge Target Rings & World Cup Trophy
@@ -153,28 +167,64 @@ export class Stadium {
 
     if (this.goalExcitementTimer > 0) {
       this.goalExcitementTimer = Math.max(0, this.goalExcitementTimer - dt);
-      const t = performance.now() * 0.015;
+      this.crowdWasExcited = true;
+      const t = performance.now() * 0.014;
 
       // Net ripple
-      const scalePulse = 1 + Math.sin(t * 2.5) * 0.04 * (this.goalExcitementTimer / 3.5);
+      const scalePulse = 1 + Math.sin(t * 2.5) * 0.045 * (this.goalExcitementTimer / 3.5);
       this.leftGoalNet.scale.set(scalePulse, 1, scalePulse);
       this.rightGoalNet.scale.set(scalePulse, 1, scalePulse);
 
-      // Crowd jumping animation
-      const dummy = new THREE.Matrix4();
-      const pos = new THREE.Vector3();
-      const quat = new THREE.Quaternion();
-      const scl = new THREE.Vector3();
-
-      for (let i = 0; i < this.crowdBaseMatrices.length; i++) {
-        dummy.copy(this.crowdBaseMatrices[i]);
-        dummy.decompose(pos, quat, scl);
-        pos.y += Math.abs(Math.sin(t + i * 0.7)) * 0.65;
-        dummy.compose(pos, quat, scl);
-        this.crowdMesh.setMatrixAt(i, dummy);
+      this.updateCrowdPose(t, true);
+    } else {
+      if (this.crowdWasExcited) {
+        this.leftGoalNet.scale.set(1, 1, 1);
+        this.rightGoalNet.scale.set(1, 1, 1);
+        this.crowdWasExcited = false;
       }
-      this.crowdMesh.instanceMatrix.needsUpdate = true;
+      // Subtle stadium breathing / ambient fan sway
+      this.updateCrowdPose(performance.now() * 0.0022, false);
     }
+  }
+
+  private updateCrowdPose(t: number, isGoalExcited: boolean): void {
+    const obj = new THREE.Object3D();
+    const armObj = new THREE.Object3D();
+
+    for (let i = 0; i < this.crowdData.length; i++) {
+      const c = this.crowdData[i];
+      const jumpY = isGoalExcited
+        ? Math.abs(Math.sin(t + c.phase)) * 0.72
+        : Math.max(0, Math.sin(t + c.phase * 1.7)) * 0.06;
+      const swayZ = isGoalExcited
+        ? Math.sin(t * 1.3 + c.phase) * 0.08
+        : Math.sin(t * 0.8 + c.phase) * 0.03;
+
+      obj.position.set(c.x, c.y + jumpY, c.z);
+      obj.rotation.set(0, c.yaw, swayZ);
+      obj.scale.setScalar(c.scale);
+      obj.updateMatrix();
+
+      this.crowdTorsoMesh.setMatrixAt(i, obj.matrix);
+      this.crowdHeadMesh.setMatrixAt(i, obj.matrix);
+      this.crowdHairMesh.setMatrixAt(i, obj.matrix);
+
+      // Arms pivot at shoulder height (y + 0.80 * scale) and swing overhead when cheering!
+      armObj.position.set(c.x, c.y + jumpY + 0.80 * c.scale, c.z);
+      const armWaveX = isGoalExcited
+        ? -2.35 - Math.abs(Math.sin(t * 1.6 + c.phase)) * 0.6
+        : -0.15 - Math.max(0, Math.sin(t * 1.4 + c.phase)) * 0.28;
+      armObj.rotation.set(0, c.yaw, swayZ);
+      armObj.rotateX(armWaveX);
+      armObj.scale.setScalar(c.scale);
+      armObj.updateMatrix();
+      this.crowdArmsMesh.setMatrixAt(i, armObj.matrix);
+    }
+
+    this.crowdTorsoMesh.instanceMatrix.needsUpdate = true;
+    this.crowdHeadMesh.instanceMatrix.needsUpdate = true;
+    this.crowdHairMesh.instanceMatrix.needsUpdate = true;
+    this.crowdArmsMesh.instanceMatrix.needsUpdate = true;
   }
 
   private buildPitch(): void {
@@ -423,7 +473,7 @@ export class Stadium {
       const standGroup = new THREE.Group();
       for (let tier = 0; tier < 4; tier++) {
         const tierMesh = new THREE.Mesh(new THREE.BoxGeometry(w, 2.2, d / 4), standMat);
-        tierMesh.position.set(0, 1.1 + tier * 2.0, (tier - 1.5) * (d / 4));
+        tierMesh.position.set(0, 1.1 + tier * 2.0, (1.5 - tier) * (d / 4));
         standGroup.add(tierMesh);
       }
       standGroup.position.set(x, 0, z);
@@ -436,40 +486,104 @@ export class Stadium {
     buildStand(-Stadium.HALF_LENGTH - 15, 0, 76, 14, Math.PI / 2);
     buildStand(Stadium.HALF_LENGTH + 15, 0, 76, 14, -Math.PI / 2);
 
-    // Instanced Crowd Spectators
-    const crowdCount = 420;
-    const spectatorGeo = new THREE.BoxGeometry(0.65, 1.1, 0.65);
-    const spectatorMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
-    this.crowdMesh = new THREE.InstancedMesh(spectatorGeo, spectatorMat, crowdCount);
+    // Humanoid Instanced Crowd Spectators (Head + Hair/Cap + Rounded Torso/Shoulders/Legs + Animated Cheering Arms)
+    const lowerBodyGeo = new THREE.CylinderGeometry(0.18, 0.16, 0.36, 10);
+    lowerBodyGeo.translate(0, 0.18, 0);
+    const chestGeo = new THREE.CylinderGeometry(0.24, 0.17, 0.50, 10);
+    chestGeo.translate(0, 0.60, 0);
+    const shouldersGeo = new THREE.CapsuleGeometry(0.105, 0.34, 4, 8);
+    shouldersGeo.rotateZ(Math.PI / 2);
+    shouldersGeo.translate(0, 0.80, 0);
+    const neckGeo = new THREE.CylinderGeometry(0.065, 0.08, 0.12, 8);
+    neckGeo.translate(0, 0.91, 0);
+    const torsoGeo = mergeGeometries([lowerBodyGeo, chestGeo, shouldersGeo, neckGeo], false)!;
 
-    const palette = [0xef4444, 0xfacc15, 0x3b82f6, 0x10b981, 0xf97316, 0xffffff, 0xa855f7];
-    const dummy = new THREE.Object3D();
+    const headGeo = new THREE.SphereGeometry(0.165, 12, 10);
+    headGeo.scale(0.95, 1.08, 1.0);
+    headGeo.translate(0, 1.11, 0);
+
+    const hairGeo = new THREE.SphereGeometry(0.176, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.56);
+    hairGeo.scale(0.97, 1.06, 1.02);
+    hairGeo.rotateX(-0.18);
+    hairGeo.translate(0, 1.13, -0.01);
+
+    const leftArmGeo = new THREE.CapsuleGeometry(0.062, 0.36, 4, 6);
+    leftArmGeo.rotateZ(-0.16);
+    leftArmGeo.translate(-0.27, -0.20, 0.02);
+    const rightArmGeo = new THREE.CapsuleGeometry(0.062, 0.36, 4, 6);
+    rightArmGeo.rotateZ(0.16);
+    rightArmGeo.translate(0.27, -0.20, 0.02);
+    const armsGeo = mergeGeometries([leftArmGeo, rightArmGeo], false)!;
+
+    const crowdMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+    const crowdCount = 540;
+
+    this.crowdTorsoMesh = new THREE.InstancedMesh(torsoGeo, crowdMat, crowdCount);
+    this.crowdHeadMesh = new THREE.InstancedMesh(headGeo, crowdMat, crowdCount);
+    this.crowdHairMesh = new THREE.InstancedMesh(hairGeo, crowdMat, crowdCount);
+    this.crowdArmsMesh = new THREE.InstancedMesh(armsGeo, crowdMat, crowdCount);
+
+    const jerseyPalette = [0xef4444, 0xfacc15, 0x3b82f6, 0x10b981, 0xf97316, 0xf8fafc, 0xa855f7, 0x06b6d4];
+    const skinPalette = [0xf1c27d, 0xe0ac69, 0xc68642, 0xffdbac, 0x8d5524];
+    const hairPalette = [0x111827, 0x27272a, 0x451a03, 0x78350f, 0x92400e, 0xef4444, 0x2563eb];
     const color = new THREE.Color();
 
     for (let i = 0; i < crowdCount; i++) {
       const side = i % 4;
-      const tier = Math.floor(Math.random() * 4);
-      const y = 2.5 + tier * 2.0;
+      const tier = Math.floor((i / 4) % 4);
+      const y = 2.18 + tier * 2.0;
+      const tierDepthOffset = (1.5 - tier) * 3.5;
+      const jitter = (Math.random() - 0.5) * 0.9;
 
+      let px = 0;
+      let pz = 0;
       if (side === 0) {
-        dummy.position.set((Math.random() - 0.5) * 108, y, -Stadium.HALF_WIDTH - 9.5 - tier * 3.2);
+        // North Stand
+        px = (Math.random() - 0.5) * 108;
+        pz = -Stadium.HALF_WIDTH - 14 + tierDepthOffset + jitter;
       } else if (side === 1) {
-        dummy.position.set((Math.random() - 0.5) * 108, y, Stadium.HALF_WIDTH + 9.5 + tier * 3.2);
+        // South Stand
+        px = (Math.random() - 0.5) * 108;
+        pz = Stadium.HALF_WIDTH + 14 - tierDepthOffset + jitter;
       } else if (side === 2) {
-        dummy.position.set(-Stadium.HALF_LENGTH - 10.5 - tier * 3.2, y, (Math.random() - 0.5) * 68);
+        // West Stand
+        px = -Stadium.HALF_LENGTH - 15 + tierDepthOffset + jitter;
+        pz = (Math.random() - 0.5) * 68;
       } else {
-        dummy.position.set(Stadium.HALF_LENGTH + 10.5 + tier * 3.2, y, (Math.random() - 0.5) * 68);
+        // East Stand
+        px = Stadium.HALF_LENGTH + 15 - tierDepthOffset + jitter;
+        pz = (Math.random() - 0.5) * 68;
       }
-      dummy.updateMatrix();
-      this.crowdBaseMatrices.push(dummy.matrix.clone());
-      this.crowdMesh.setMatrixAt(i, dummy.matrix);
-      color.setHex(palette[i % palette.length]);
-      this.crowdMesh.setColorAt(i, color);
+
+      const yaw = Math.atan2(-px, -pz) + (Math.random() - 0.5) * 0.25;
+      this.crowdData.push({
+        x: px,
+        y,
+        z: pz,
+        yaw,
+        scale: 0.9 + Math.random() * 0.22,
+        phase: Math.random() * Math.PI * 2
+      });
+
+      const jHex = jerseyPalette[i % jerseyPalette.length];
+      color.setHex(jHex);
+      this.crowdTorsoMesh.setColorAt(i, color);
+      this.crowdArmsMesh.setColorAt(i, color);
+
+      color.setHex(skinPalette[i % skinPalette.length]);
+      this.crowdHeadMesh.setColorAt(i, color);
+
+      color.setHex(hairPalette[(i * 3) % hairPalette.length]);
+      this.crowdHairMesh.setColorAt(i, color);
     }
 
-    this.crowdMesh.instanceMatrix.needsUpdate = true;
-    if (this.crowdMesh.instanceColor) this.crowdMesh.instanceColor.needsUpdate = true;
-    this.group.add(this.crowdMesh);
+    this.updateCrowdPose(0, false);
+
+    [this.crowdTorsoMesh, this.crowdHeadMesh, this.crowdHairMesh, this.crowdArmsMesh].forEach((m) => {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      this.group.add(m);
+    });
   }
 
   private buildFloodlights(): void {

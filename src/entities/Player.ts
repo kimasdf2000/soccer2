@@ -471,6 +471,14 @@ export const TEAMS: Record<string, TeamConfig> = {
 
 export type PlayerRole = 'GK' | 'DF' | 'MF' | 'FW';
 
+export type GoalCelebrationType =
+  | 'KNEE_SLIDE'
+  | 'GOALPOST_HANG'
+  | 'SIUUU_JUMP'
+  | 'AIRPLANE_SLIDE'
+  | 'BACKFLIP'
+  | 'TEAMMATE_CHEER';
+
 export class Player {
   public id: string;
   public team: 'HOME' | 'AWAY';
@@ -491,6 +499,8 @@ export class Player {
   private torsoMesh: THREE.Mesh;
   private leftLeg: THREE.Group;
   private rightLeg: THREE.Group;
+  private leftShin: THREE.Group;
+  private rightShin: THREE.Group;
   private leftArm: THREE.Group;
   private rightArm: THREE.Group;
   private activeRing: THREE.Mesh;
@@ -531,6 +541,11 @@ export class Player {
   public skillTimer: number = 0;
   public skillCooldown: number = 0;
   public celebrationTimer: number = 0;
+  public celebrationDuration: number = 3.0;
+  public celebrationType: GoalCelebrationType = 'KNEE_SLIDE';
+  public celebrationTarget: THREE.Vector3 | null = null;
+  private celebrationArrivedAtTarget: boolean = false;
+  private celebrationHangStart: number = 0;
   public isThrowInTaker: boolean = false;
   public dashBurstTimer: number = 0;
   private wasSprinting: boolean = false;
@@ -628,10 +643,15 @@ export class Player {
     this.rightArm.position.set(0.48, 1.76, 0);
     this.bodyGroup.add(this.leftArm, this.rightArm);
 
-    // Legs
-    this.leftLeg = this.createLeg(jerseyColor, skinMat);
+    // Legs (thigh + knee-articulated shin)
+    const leftParts = this.createLeg(jerseyColor, skinMat);
+    this.leftLeg = leftParts.leg;
+    this.leftShin = leftParts.shin;
     this.leftLeg.position.set(-0.2, 0.72, 0);
-    this.rightLeg = this.createLeg(jerseyColor, skinMat);
+
+    const rightParts = this.createLeg(jerseyColor, skinMat);
+    this.rightLeg = rightParts.leg;
+    this.rightShin = rightParts.shin;
     this.rightLeg.position.set(0.2, 0.72, 0);
     this.bodyGroup.add(this.leftLeg, this.rightLeg);
 
@@ -753,23 +773,27 @@ export class Player {
     return g;
   }
 
-  private createLeg(sockHex: number, skinMat: THREE.Material): THREE.Group {
+  private createLeg(sockHex: number, skinMat: THREE.Material): { leg: THREE.Group; shin: THREE.Group } {
     const g = new THREE.Group();
     const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.34, 0.22), skinMat);
     thigh.position.y = -0.17;
     g.add(thigh);
 
+    const shin = new THREE.Group();
+    shin.position.y = -0.34;
+    g.add(shin);
+
     const sockMat = new THREE.MeshStandardMaterial({ color: sockHex, roughness: 0.7 });
     const sock = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.32, 0.2), sockMat);
-    sock.position.y = -0.48;
-    g.add(sock);
+    sock.position.y = -0.14;
+    shin.add(sock);
 
     const bootMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.4 });
     const boot = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.34), bootMat);
-    boot.position.set(0, -0.65, 0.05);
-    g.add(boot);
+    boot.position.set(0, -0.31, 0.05);
+    shin.add(boot);
 
-    return g;
+    return { leg: g, shin };
   }
 
   public triggerSkillMove(): boolean {
@@ -782,8 +806,33 @@ export class Player {
     return true;
   }
 
-  public triggerGoalCelebration(duration: number = 3.0): void {
+  public triggerGoalCelebration(
+    duration: number = 3.2,
+    type: GoalCelebrationType = 'KNEE_SLIDE',
+    target: THREE.Vector3 | null = null
+  ): void {
     this.celebrationTimer = duration;
+    this.celebrationDuration = duration;
+    this.celebrationType = type;
+    this.celebrationTarget = target ? target.clone() : null;
+    this.celebrationArrivedAtTarget = false;
+    this.celebrationHangStart = 0;
+    this.slideTimer = 0;
+    this.fallenTimer = 0;
+    this.diveTimer = 0;
+  }
+
+  public resetPose(): void {
+    this.celebrationTimer = 0;
+    this.celebrationTarget = null;
+    this.bodyGroup.position.y = 0;
+    this.bodyGroup.rotation.set(0, this.facingAngle, 0);
+    this.leftArm.rotation.set(0, 0, 0);
+    this.rightArm.rotation.set(0, 0, 0);
+    this.leftLeg.rotation.set(0, 0, 0);
+    this.rightLeg.rotation.set(0, 0, 0);
+    this.leftShin.rotation.set(0, 0, 0);
+    this.rightShin.rotation.set(0, 0, 0);
   }
 
   public triggerSlideTackle(dir: THREE.Vector3): boolean {
@@ -856,19 +905,24 @@ export class Player {
       this.stamina = Math.min(100, this.stamina + dt * 4.2);
     }
 
-    // Goal Celebration Animation (Knee Slide + Double Arm Uppercut Jump!)
+    // Goal Celebration Animations (Knee Slide, Goalpost Hang, Siuuu Jump, Airplane Slide, Backflip, Teammate Cheer)
     if (this.celebrationTimer > 0) {
       this.celebrationTimer = Math.max(0, this.celebrationTimer - dt);
-      const t = performance.now() * 0.012;
-      this.bodyGroup.position.y = Math.abs(Math.sin(t)) * 0.85;
-      this.leftArm.rotation.x = -Math.PI * 0.85;
-      this.rightArm.rotation.x = -Math.PI * 0.85;
-      this.bodyGroup.rotation.y += dt * 3.5;
-      this.position.addScaledVector(this.velocity, dt * 0.5);
+      this.updateCelebrationAnimation(dt);
+      this.position.x = THREE.MathUtils.clamp(this.position.x, -56, 56);
+      this.position.z = THREE.MathUtils.clamp(this.position.z, -38, 38);
       this.group.position.copy(this.position);
       this.syncIndicators();
       return;
     }
+
+    // Reset extra celebration joint rotations when not celebrating
+    this.leftArm.rotation.z = 0;
+    this.rightArm.rotation.z = 0;
+    this.leftLeg.rotation.z = 0;
+    this.rightLeg.rotation.z = 0;
+    this.leftShin.rotation.x = 0;
+    this.rightShin.rotation.x = 0;
 
     // Fallen (Fouled) State
     if (this.fallenTimer > 0) {
@@ -924,6 +978,8 @@ export class Player {
         const swing = Math.sin(this.animPhase) * Math.min(0.85, speed * 0.08);
         this.leftLeg.rotation.x = swing;
         this.rightLeg.rotation.x = -swing;
+        this.leftShin.rotation.x = Math.max(0, -swing * 0.55);
+        this.rightShin.rotation.x = Math.max(0, swing * 0.55);
         this.leftArm.rotation.x = -swing * 0.75;
         this.rightArm.rotation.x = swing * 0.75;
       } else {
@@ -960,6 +1016,282 @@ export class Player {
     }
 
     this.syncIndicators();
+  }
+
+  private updateCelebrationAnimation(dt: number): void {
+    const elapsed = Math.max(0, this.celebrationDuration - this.celebrationTimer);
+    const applyRunStride = (spd: number, armRaiseBias: number = 0) => {
+      this.animPhase += dt * (6.0 + spd * 0.9);
+      const swing = Math.sin(this.animPhase) * 0.85;
+      this.leftLeg.rotation.x = swing;
+      this.rightLeg.rotation.x = -swing;
+      this.leftLeg.rotation.z = 0;
+      this.rightLeg.rotation.z = 0;
+      this.leftShin.rotation.x = Math.max(0, -swing * 0.6);
+      this.rightShin.rotation.x = Math.max(0, swing * 0.6);
+      this.leftArm.rotation.x = -swing * 0.7 - armRaiseBias;
+      this.rightArm.rotation.x = swing * 0.7 - armRaiseBias;
+      this.leftArm.rotation.z = -0.18;
+      this.rightArm.rotation.z = 0.18;
+      this.bodyGroup.position.y = Math.abs(Math.sin(this.animPhase)) * 0.12;
+      this.bodyGroup.rotation.x = 0.08;
+      this.bodyGroup.rotation.z = 0;
+    };
+
+    const applyKneeSlidePose = (tWave: number) => {
+      this.bodyGroup.position.y = -0.34;
+      this.bodyGroup.rotation.x = -0.26;
+      this.bodyGroup.rotation.z = 0;
+      this.leftLeg.rotation.x = -0.22;
+      this.rightLeg.rotation.x = -0.22;
+      this.leftLeg.rotation.z = -0.06;
+      this.rightLeg.rotation.z = 0.06;
+      this.leftShin.rotation.x = 1.62;
+      this.rightShin.rotation.x = 1.62;
+      // Spread arms wide & pump fists triumphantly while sliding on knees
+      this.leftArm.rotation.x = -0.55 + Math.sin(tWave * 8) * 0.18;
+      this.rightArm.rotation.x = -0.55 + Math.sin(tWave * 8) * 0.18;
+      this.leftArm.rotation.z = -1.05 - Math.cos(tWave * 6) * 0.2;
+      this.rightArm.rotation.z = 1.05 + Math.cos(tWave * 6) * 0.2;
+    };
+
+    switch (this.celebrationType) {
+      case 'KNEE_SLIDE': {
+        if (elapsed < 0.65) {
+          // Sprint toward corner/touchline before dropping to knees
+          const runSpd = 10.5;
+          const dir = new THREE.Vector3(Math.sin(this.facingAngle), 0, Math.cos(this.facingAngle));
+          this.velocity.copy(dir).multiplyScalar(runSpd);
+          this.position.addScaledVector(this.velocity, dt);
+          applyRunStride(runSpd, 0.85);
+          this.bodyGroup.rotation.y = this.facingAngle;
+        } else if (elapsed < 2.55) {
+          // Smoothly slide on both knees across the grass!
+          const slideFrac = (elapsed - 0.65) / 1.9;
+          const slideSpeed = 10.2 * Math.pow(Math.max(0, 1 - slideFrac), 1.35);
+          const dir = new THREE.Vector3(Math.sin(this.facingAngle), 0, Math.cos(this.facingAngle));
+          this.position.addScaledVector(dir, slideSpeed * dt);
+          applyKneeSlidePose(elapsed);
+          this.bodyGroup.rotation.y = this.facingAngle;
+        } else {
+          // Pop back up & double fist-pump roar
+          this.bodyGroup.position.y = Math.abs(Math.sin(elapsed * 8)) * 0.35;
+          this.bodyGroup.rotation.x = -0.08;
+          this.leftLeg.rotation.x = 0;
+          this.rightLeg.rotation.x = 0;
+          this.leftShin.rotation.x = 0;
+          this.rightShin.rotation.x = 0;
+          this.leftArm.rotation.x = -Math.PI * 0.85;
+          this.rightArm.rotation.x = -Math.PI * 0.85;
+          this.leftArm.rotation.z = -0.35;
+          this.rightArm.rotation.z = 0.35;
+          this.bodyGroup.rotation.y = this.facingAngle;
+        }
+        break;
+      }
+
+      case 'GOALPOST_HANG': {
+        const target = this.celebrationTarget;
+        if (!this.celebrationArrivedAtTarget && target) {
+          const toPost = target.clone().sub(this.position);
+          toPost.y = 0;
+          const dist = toPost.length();
+          if (dist > 0.55 && elapsed < 1.35) {
+            toPost.normalize();
+            const sprintSpd = 11.5;
+            this.velocity.copy(toPost).multiplyScalar(sprintSpd);
+            this.position.addScaledVector(this.velocity, dt);
+            this.facingAngle = Math.atan2(toPost.x, toPost.z);
+            applyRunStride(sprintSpd, 1.25);
+            this.bodyGroup.rotation.y = this.facingAngle;
+            break;
+          }
+          this.celebrationArrivedAtTarget = true;
+          this.celebrationHangStart = elapsed;
+          this.position.copy(target);
+          // Face back out toward the stadium/camera while gripping the crossbar
+          this.facingAngle = target.x > 0 ? -Math.PI / 2 : Math.PI / 2;
+        }
+
+        const hangElapsed = elapsed - this.celebrationHangStart;
+        if (elapsed < 2.8) {
+          // Leap up and hang from the 3.45m crossbar with both hands, swinging and kicking legs!
+          const jumpBlend = Math.min(1, hangElapsed / 0.18);
+          this.bodyGroup.position.y = THREE.MathUtils.lerp(0, 1.07, jumpBlend) + Math.sin(hangElapsed * 5.2) * 0.05;
+          this.bodyGroup.rotation.y = this.facingAngle;
+          this.bodyGroup.rotation.x = Math.sin(hangElapsed * 5.2) * 0.28 * jumpBlend;
+          this.bodyGroup.rotation.z = 0;
+
+          // Both hands locked tightly onto the crossbar overhead
+          this.leftArm.rotation.x = -Math.PI * 0.96;
+          this.rightArm.rotation.x = -Math.PI * 0.96;
+          this.leftArm.rotation.z = 0.08;
+          this.rightArm.rotation.z = -0.08;
+
+          // Legs kicking & bending joyfully in mid-air
+          this.leftLeg.rotation.x = 0.35 + Math.sin(hangElapsed * 7.5) * 0.32;
+          this.rightLeg.rotation.x = 0.35 - Math.sin(hangElapsed * 7.5) * 0.32;
+          this.leftLeg.rotation.z = -0.1;
+          this.rightLeg.rotation.z = 0.1;
+          this.leftShin.rotation.x = 0.72;
+          this.rightShin.rotation.x = 0.72;
+        } else {
+          // Drop cleanly back down to the grass
+          const dropFrac = Math.min(1, (elapsed - 2.8) / 0.35);
+          this.bodyGroup.position.y = THREE.MathUtils.lerp(1.07, 0, dropFrac);
+          this.bodyGroup.rotation.x = 0;
+          this.bodyGroup.rotation.y = this.facingAngle;
+          this.leftArm.rotation.x = -1.2;
+          this.rightArm.rotation.x = -1.2;
+          this.leftArm.rotation.z = -0.8;
+          this.rightArm.rotation.z = 0.8;
+          this.leftLeg.rotation.x = 0;
+          this.rightLeg.rotation.x = 0;
+          this.leftShin.rotation.x = 0;
+          this.rightShin.rotation.x = 0;
+        }
+        break;
+      }
+
+      case 'SIUUU_JUMP': {
+        if (elapsed < 0.75) {
+          const dir = new THREE.Vector3(Math.sin(this.facingAngle), 0, Math.cos(this.facingAngle));
+          this.position.addScaledVector(dir, 9.2 * dt);
+          applyRunStride(9.2, 0.4);
+          this.bodyGroup.rotation.y = this.facingAngle;
+        } else if (elapsed < 1.38) {
+          // Explosive mid-air 180-degree spin!
+          const jFrac = (elapsed - 0.75) / 0.63;
+          this.bodyGroup.position.y = Math.sin(jFrac * Math.PI) * 1.48;
+          this.bodyGroup.rotation.y = this.facingAngle + jFrac * Math.PI;
+          this.bodyGroup.rotation.x = -0.1;
+          this.leftLeg.rotation.x = -0.25;
+          this.rightLeg.rotation.x = -0.25;
+          this.leftShin.rotation.x = 0.75;
+          this.rightShin.rotation.x = 0.75;
+          this.leftArm.rotation.x = -1.4;
+          this.rightArm.rotation.x = -1.4;
+          this.leftArm.rotation.z = -0.35;
+          this.rightArm.rotation.z = 0.35;
+        } else {
+          // Iconic wide landing stance ("SIUUU!")
+          this.bodyGroup.position.y = 0;
+          this.bodyGroup.rotation.y = this.facingAngle + Math.PI;
+          this.bodyGroup.rotation.x = -0.15;
+          this.bodyGroup.rotation.z = 0;
+          this.leftLeg.rotation.x = 0;
+          this.rightLeg.rotation.x = 0;
+          this.leftLeg.rotation.z = -0.32;
+          this.rightLeg.rotation.z = 0.32;
+          this.leftShin.rotation.x = 0;
+          this.rightShin.rotation.x = 0;
+          this.leftArm.rotation.x = 0.48;
+          this.rightArm.rotation.x = 0.48;
+          this.leftArm.rotation.z = -0.68;
+          this.rightArm.rotation.z = 0.68;
+        }
+        break;
+      }
+
+      case 'AIRPLANE_SLIDE': {
+        if (elapsed < 1.35) {
+          // Airplane sprint with wings banked left/right
+          const dir = new THREE.Vector3(Math.sin(this.facingAngle), 0, Math.cos(this.facingAngle));
+          this.position.addScaledVector(dir, 9.8 * dt);
+          applyRunStride(9.8, 0);
+          this.leftArm.rotation.x = 0;
+          this.rightArm.rotation.x = 0;
+          this.leftArm.rotation.z = -1.42;
+          this.rightArm.rotation.z = 1.42;
+          this.bodyGroup.rotation.z = Math.sin(elapsed * 5.2) * 0.24;
+          this.bodyGroup.rotation.y = this.facingAngle;
+        } else if (elapsed < 2.7) {
+          // Finish with a smooth knee slide!
+          const slideFrac = (elapsed - 1.35) / 1.35;
+          const slideSpeed = 9.0 * Math.pow(Math.max(0, 1 - slideFrac), 1.3);
+          const dir = new THREE.Vector3(Math.sin(this.facingAngle), 0, Math.cos(this.facingAngle));
+          this.position.addScaledVector(dir, slideSpeed * dt);
+          applyKneeSlidePose(elapsed);
+          this.bodyGroup.rotation.y = this.facingAngle;
+        } else {
+          this.bodyGroup.position.y = 0;
+          this.bodyGroup.rotation.x = 0;
+          this.leftShin.rotation.x = 0;
+          this.rightShin.rotation.x = 0;
+          this.leftArm.rotation.x = -Math.PI * 0.85;
+          this.rightArm.rotation.x = -Math.PI * 0.85;
+          this.leftArm.rotation.z = -0.3;
+          this.rightArm.rotation.z = 0.3;
+        }
+        break;
+      }
+
+      case 'BACKFLIP': {
+        if (elapsed < 0.6) {
+          const dir = new THREE.Vector3(Math.sin(this.facingAngle), 0, Math.cos(this.facingAngle));
+          this.position.addScaledVector(dir, 8.2 * dt);
+          applyRunStride(8.2, 0.3);
+          this.bodyGroup.rotation.y = this.facingAngle;
+        } else if (elapsed < 1.38) {
+          // Full 360-degree backward somersault in mid-air!
+          const flipFrac = (elapsed - 0.6) / 0.78;
+          this.bodyGroup.position.y = Math.sin(flipFrac * Math.PI) * 1.95;
+          this.bodyGroup.rotation.y = this.facingAngle;
+          this.bodyGroup.rotation.x = -flipFrac * Math.PI * 2;
+          this.bodyGroup.rotation.z = 0;
+          this.leftLeg.rotation.x = -0.95;
+          this.rightLeg.rotation.x = -0.95;
+          this.leftShin.rotation.x = 1.65;
+          this.rightShin.rotation.x = 1.65;
+          this.leftArm.rotation.x = -1.6;
+          this.rightArm.rotation.x = -1.6;
+        } else {
+          // Land & salute/cheer
+          this.bodyGroup.position.y = Math.abs(Math.sin(elapsed * 7)) * 0.22;
+          this.bodyGroup.rotation.x = 0;
+          this.bodyGroup.rotation.y = this.facingAngle;
+          this.leftLeg.rotation.x = 0;
+          this.rightLeg.rotation.x = 0;
+          this.leftShin.rotation.x = 0;
+          this.rightShin.rotation.x = 0;
+          this.leftArm.rotation.x = -Math.PI * 0.85;
+          this.rightArm.rotation.x = -Math.PI * 0.85;
+          this.leftArm.rotation.z = -0.45;
+          this.rightArm.rotation.z = 0.45;
+        }
+        break;
+      }
+
+      case 'TEAMMATE_CHEER':
+      default: {
+        // Run toward the celebrating scorer & cheer with raised arms!
+        if (this.celebrationTarget) {
+          const toScorer = this.celebrationTarget.clone().sub(this.position);
+          toScorer.y = 0;
+          if (toScorer.length() > 2.2) {
+            toScorer.normalize();
+            this.position.addScaledVector(toScorer, 8.2 * dt);
+            this.facingAngle = Math.atan2(toScorer.x, toScorer.z);
+            applyRunStride(8.2, 1.3);
+            this.bodyGroup.rotation.y = this.facingAngle;
+            break;
+          }
+        }
+        this.bodyGroup.position.y = Math.abs(Math.sin(elapsed * 8.5)) * 0.55;
+        this.bodyGroup.rotation.x = 0;
+        this.bodyGroup.rotation.z = 0;
+        this.bodyGroup.rotation.y = this.facingAngle;
+        this.leftLeg.rotation.x = 0;
+        this.rightLeg.rotation.x = 0;
+        this.leftShin.rotation.x = 0;
+        this.rightShin.rotation.x = 0;
+        this.leftArm.rotation.x = -Math.PI * 0.88 + Math.sin(elapsed * 10) * 0.2;
+        this.rightArm.rotation.x = -Math.PI * 0.88 - Math.sin(elapsed * 10) * 0.2;
+        this.leftArm.rotation.z = -0.35;
+        this.rightArm.rotation.z = 0.35;
+        break;
+      }
+    }
   }
 
   private syncIndicators(): void {

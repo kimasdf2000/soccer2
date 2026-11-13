@@ -19,7 +19,7 @@ import { CommentarySystem } from './systems/CommentarySystem';
 import { ReplaySystem } from './systems/ReplaySystem';
 import { WorldCupBall, WORLD_CUP_BALLS } from './entities/WorldCupBall';
 import { Stadium } from './entities/Stadium';
-import { Player, TEAMS } from './entities/Player';
+import { GoalCelebrationType, Player, TEAMS } from './entities/Player';
 import { Referee } from './entities/Referee';
 import { Linesman } from './entities/Linesman';
 
@@ -185,8 +185,10 @@ export class Game {
   private pendingOffsideReceiverId: string | null = null;
   private pendingOffsideLineX: number = 0;
 
-  // Bench substitution index
+  // Bench substitution index & celebration tracking
   private benchIndex: number = 0;
+  private celebratingScorer: Player | null = null;
+  private celebrationCounter: number = 0;
 
   // Camera smoothing vectors
   private camPosTarget: THREE.Vector3 = new THREE.Vector3(0, 26, 38);
@@ -1430,6 +1432,11 @@ export class Game {
   }
 
   private handlePostGoalTransition(): void {
+    this.celebratingScorer = null;
+    for (const p of this.players) {
+      p.resetPose();
+    }
+
     if (this.gameMode === 'PENALTY_SHOOTOUT') {
       this.advancePenaltyShootoutRound(true);
       return;
@@ -1544,7 +1551,7 @@ export class Game {
         const angle = (idx / this.homePlayers.length) * Math.PI * 2;
         p.position.set(Math.cos(angle) * 4.5, 0, Math.sin(angle) * 4.5);
         p.facingAngle = Math.atan2(-p.position.x, -p.position.z);
-        p.celebrationTimer = 8.0;
+        p.triggerGoalCelebration(8.0, 'TEAMMATE_CHEER', new THREE.Vector3(0, 0, 0));
         p.group.position.copy(p.position);
       });
 
@@ -2612,14 +2619,66 @@ export class Game {
         const scorer = this.players.find((p) => p.id === this.ball.lastKickerId);
         const scorerName = scorer ? `${scorer.teamConfig.flag} ${scorer.nameLabel}` : scoringTeam;
 
-        // Trigger Goal Scorer Celebration!
+        // Pick a realistic Goal Scorer Celebration (Knee Slide, Crossbar Hang, Siuuu Jump, Airplane Slide, Backflip)
+        const goalX = scoringTeam === 'HOME' ? Stadium.HALF_LENGTH : -Stadium.HALF_LENGTH;
+        const celebrationPool: GoalCelebrationType[] = [
+          'KNEE_SLIDE',
+          'GOALPOST_HANG',
+          'SIUUU_JUMP',
+          'AIRPLANE_SLIDE',
+          'BACKFLIP'
+        ];
+        let celebType = celebrationPool[this.celebrationCounter % celebrationPool.length];
+        this.celebrationCounter++;
+
+        // Only hang on the goalpost if close enough to reach the crossbar naturally
+        if (celebType === 'GOALPOST_HANG' && scorer && Math.abs(scorer.position.x - goalX) > 26) {
+          celebType = 'KNEE_SLIDE';
+        }
+
+        const celebLabels: Record<GoalCelebrationType, string> = {
+          KNEE_SLIDE: '🔥 무릎 꿇고 슬라이딩 세리머니!',
+          GOALPOST_HANG: '🥅 골대 크로스바 매달리기 세리머니!',
+          SIUUU_JUMP: '⚡ 호우(SIUUU) 점프 턴 세리머니!',
+          AIRPLANE_SLIDE: '✈️ 비행기 질주 & 무릎 슬라이딩!',
+          BACKFLIP: '🤸 공중 백플립 아크로바틱 세리머니!',
+          TEAMMATE_CHEER: '🙌 동료들과 함께 환호!'
+        };
+
+        this.celebratingScorer = scorer || null;
         if (scorer) {
-          scorer.triggerGoalCelebration(3.2);
-          scorer.velocity.set(scoringTeam === 'HOME' ? -4 : 4, 0, 3);
+          let celebTarget: THREE.Vector3 | null = null;
+          if (celebType === 'GOALPOST_HANG') {
+            celebTarget = new THREE.Vector3(
+              scoringTeam === 'HOME' ? Stadium.HALF_LENGTH - 0.14 : -Stadium.HALF_LENGTH + 0.14,
+              0,
+              THREE.MathUtils.clamp(scorer.position.z, -Stadium.GOAL_HALF_WIDTH + 1.1, Stadium.GOAL_HALF_WIDTH - 1.1)
+            );
+          } else {
+            // Aim knee slide / airplane run out toward the corner flag / sideline for clear camera framing
+            const dirX = scoringTeam === 'HOME' ? -0.45 : 0.45;
+            const dirZ = scorer.position.z >= 0 ? 0.88 : -0.88;
+            scorer.facingAngle = Math.atan2(dirX, dirZ);
+          }
+
+          scorer.triggerGoalCelebration(3.2, celebType, celebTarget);
+
+          // Summon up to 3 nearby teammates to run in and celebrate with the scorer!
+          const teamRoster = scoringTeam === 'HOME' ? this.homePlayers : this.awayPlayers;
+          const nearbyMates = teamRoster
+            .filter((m) => m !== scorer && !m.isSentOff && m.role !== 'GK')
+            .sort((a, b) => a.position.distanceTo(scorer.position) - b.position.distanceTo(scorer.position))
+            .slice(0, 3);
+          nearbyMates.forEach((mate, idx) => {
+            const offsetTarget = (celebTarget || scorer.position)
+              .clone()
+              .add(new THREE.Vector3((idx - 1) * 1.8, 0, scoringTeam === 'HOME' ? -2.2 : 2.2));
+            mate.triggerGoalCelebration(3.2, 'TEAMMATE_CHEER', offsetTarget);
+          });
         }
 
         this.matchState = 'GOAL_CELEBRATION';
-        this.stateTimer = 2.8;
+        this.stateTimer = 3.2;
         this.ball.velocity.multiplyScalar(0.25);
         this.stadium.triggerGoalCrowdCelebration();
         this.audio.playGoalCheer();
@@ -2627,12 +2686,12 @@ export class Game {
 
         this.showBanner(
           `⚽ GOAL!! (${this.homeScore} - ${this.awayScore})`,
-          `${scorerName} 환상적인 월드컵 골 득점 & 세리머니!`,
+          `${scorerName} — ${celebLabels[celebType]}`,
           'banner-goal',
-          2.8
+          3.1
         );
         this.commentary.announce(
-          `골인!! ${scorer?.starName || ''} 선수의 환상적인 득점이 터집니다! 경기장이 열광의 도가니에 빠집니다!`,
+          `골인!! ${scorer?.starName || ''} 선수 득점 후 ${celebLabels[celebType]} 경기장이 열광합니다!`,
           'high'
         );
         this.updateScoreboardHUD();
@@ -2668,7 +2727,17 @@ export class Game {
   }
 
   private updateCamera(dt: number): void {
-    if (this.matchState === 'REPLAY_PLAYBACK') {
+    if (this.matchState === 'GOAL_CELEBRATION' && this.celebratingScorer) {
+      const sp = this.celebratingScorer.position;
+      const sideSign = sp.x >= 0 ? -1 : 1;
+      const zSign = sp.z >= 0 ? -1 : 1;
+      this.camPosTarget.set(
+        THREE.MathUtils.clamp(sp.x + sideSign * 8.5, -56, 56),
+        3.9,
+        THREE.MathUtils.clamp(sp.z + zSign * 7.5, -36, 36)
+      );
+      this.camLookTarget.set(sp.x, 1.55, sp.z);
+    } else if (this.matchState === 'REPLAY_PLAYBACK') {
       // Dramatic Reverse Goal-Line Slow-Mo Replay Camera!
       const goalSide = this.ball.position.x >= 0 ? 1 : -1;
       this.camPosTarget.set(goalSide * (Stadium.HALF_LENGTH + 6.5), 4.5, 9.5);
