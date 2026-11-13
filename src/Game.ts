@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   CameraMode,
   CardType,
+  DifficultyLevel,
   FoulDecision,
   GameMode,
   MatchSettings,
@@ -18,6 +19,80 @@ import { Stadium } from './entities/Stadium';
 import { Player, TEAMS } from './entities/Player';
 import { Referee } from './entities/Referee';
 import { Linesman } from './entities/Linesman';
+
+export interface DifficultyProfile {
+  id: DifficultyLevel;
+  labelKo: string;
+  shortKo: string;
+  descKo: string;
+  aiSpeedMult: number;
+  aiShootSpeedMult: number;
+  aiShootFreqMult: number;
+  aiPassFreqMult: number;
+  aiTackleFreqMult: number;
+  aiStealMult: number;
+  aiGkSpeedMult: number;
+  aiGkDiveAccuracy: number;
+}
+
+export const DIFFICULTY_PROFILES: Record<DifficultyLevel, DifficultyProfile> = {
+  EASY: {
+    id: 'EASY',
+    labelKo: '🌱 쉬움 (루키)',
+    shortKo: '🌱쉬움',
+    descKo: '상대 AI 속도와 압박이 완만하여 누구나 쉽게 드리블과 득점을 즐길 수 있습니다.',
+    aiSpeedMult: 0.76,
+    aiShootSpeedMult: 0.8,
+    aiShootFreqMult: 0.45,
+    aiPassFreqMult: 0.6,
+    aiTackleFreqMult: 0.3,
+    aiStealMult: 0.42,
+    aiGkSpeedMult: 0.68,
+    aiGkDiveAccuracy: 0.15
+  },
+  NORMAL: {
+    id: 'NORMAL',
+    labelKo: '⚽ 보통 (프로)',
+    shortKo: '⚽보통',
+    descKo: '균형 잡힌 AI 속도와 수비로 표준적인 월드컵 매치를 즐깁니다.',
+    aiSpeedMult: 0.96,
+    aiShootSpeedMult: 0.96,
+    aiShootFreqMult: 0.95,
+    aiPassFreqMult: 1.0,
+    aiTackleFreqMult: 0.85,
+    aiStealMult: 0.82,
+    aiGkSpeedMult: 0.95,
+    aiGkDiveAccuracy: 0.38
+  },
+  HARD: {
+    id: 'HARD',
+    labelKo: '🔥 어려움 (월드클래스)',
+    shortKo: '🔥어려움',
+    descKo: '빠른 압박과 날카로운 패스·슈팅을 구사하는 월드클래스 AI입니다.',
+    aiSpeedMult: 1.09,
+    aiShootSpeedMult: 1.08,
+    aiShootFreqMult: 1.45,
+    aiPassFreqMult: 1.45,
+    aiTackleFreqMult: 1.25,
+    aiStealMult: 1.18,
+    aiGkSpeedMult: 1.18,
+    aiGkDiveAccuracy: 0.62
+  },
+  LEGEND: {
+    id: 'LEGEND',
+    labelKo: '👑 레전드 (전설)',
+    shortKo: '👑레전드',
+    descKo: '초고속 압박, 칼같은 구석 슈팅, 동물적인 골키퍼 반응의 최고 난이도!',
+    aiSpeedMult: 1.2,
+    aiShootSpeedMult: 1.18,
+    aiShootFreqMult: 1.95,
+    aiPassFreqMult: 1.9,
+    aiTackleFreqMult: 1.55,
+    aiStealMult: 1.48,
+    aiGkSpeedMult: 1.38,
+    aiGkDiveAccuracy: 0.82
+  }
+};
 
 export class Game {
   private container: HTMLElement;
@@ -45,7 +120,9 @@ export class Game {
   public awayTeam: TeamConfig = TEAMS.BRA;
   public teamSize: 5 | 7 | 11 = 7;
   public gameMode: GameMode = 'EXHIBITION';
+  public difficulty: DifficultyLevel = 'NORMAL';
   public tacticalStance: TacticalStance = 'BALANCED';
+  public isPaused: boolean = false;
 
   public matchState: MatchState = 'KICKOFF';
   public cameraMode: CameraMode = 'BROADCAST';
@@ -137,7 +214,7 @@ export class Game {
     this.setupLighting();
 
     this.stadium = new Stadium(this.scene);
-    this.ball = new WorldCupBall(this.scene, 'al_rihla');
+    this.ball = new WorldCupBall(this.scene, 'trionda_26');
     this.referee = new Referee(this.scene);
     this.northLinesman = new Linesman(this.scene, 'NORTH');
     this.southLinesman = new Linesman(this.scene, 'SOUTH');
@@ -151,7 +228,7 @@ export class Game {
       homeTeamId: 'KOR',
       awayTeamId: 'BRA',
       teamSize: 7,
-      ballId: 'al_rihla',
+      ballId: 'trionda_26',
       halfDurationSec: 180,
       gameMode: 'EXHIBITION'
     });
@@ -179,8 +256,12 @@ export class Game {
   }
 
   public startNewMatch(settings: MatchSettings): void {
+    this.setPaused(false);
     this.homeTeam = TEAMS[settings.homeTeamId] || TEAMS.KOR;
     this.gameMode = settings.gameMode || 'EXHIBITION';
+    if (settings.difficulty) {
+      this.difficulty = settings.difficulty;
+    }
     this.teamSize = settings.teamSize;
     this.halfDurationSec = settings.halfDurationSec;
     this.benchIndex = 0;
@@ -384,6 +465,55 @@ export class Game {
     }
     this.updateModeSpecificHUD();
     return this.tacticalStance;
+  }
+
+  public setDifficulty(diff: DifficultyLevel, showNotice: boolean = true): void {
+    this.difficulty = diff;
+    const prof = DIFFICULTY_PROFILES[diff];
+    this.updateModeSpecificHUD();
+    if (showNotice) {
+      this.showBanner(
+        `🎚️ AI 난이도 변경: ${prof.labelKo}`,
+        prof.descKo,
+        diff === 'LEGEND' ? 'banner-red' : diff === 'HARD' ? 'banner-yellow' : 'banner-setpiece',
+        1.9
+      );
+      this.commentary.announce(`게임 난이도가 ${prof.labelKo} 단계로 설정되었습니다.`, 'low');
+    }
+  }
+
+  public cycleDifficulty(): DifficultyLevel {
+    const order: DifficultyLevel[] = ['EASY', 'NORMAL', 'HARD', 'LEGEND'];
+    const next = order[(order.indexOf(this.difficulty) + 1) % order.length];
+    this.setDifficulty(next, true);
+    return next;
+  }
+
+  public setPaused(paused: boolean): void {
+    this.isPaused = paused;
+    const pauseModal = document.getElementById('pause-modal');
+    const pauseBtn = document.getElementById('btn-quick-pause');
+    const pauseSummary = document.getElementById('pause-match-summary');
+
+    if (pauseModal) {
+      pauseModal.classList.toggle('hidden', !paused);
+    }
+    if (pauseBtn) {
+      pauseBtn.textContent = paused ? '▶️ 재개' : '⏸️ 일시정지';
+      pauseBtn.classList.toggle('paused-active', paused);
+    }
+    if (paused && pauseSummary) {
+      const clockText = document.getElementById('hud-clock')?.textContent || '00:00';
+      const halfText = this.half === 1 ? '전반(1ST)' : '후반(2ND)';
+      const ballCfg = WORLD_CUP_BALLS[this.ball.currentBallId];
+      const diffProf = DIFFICULTY_PROFILES[this.difficulty];
+      pauseSummary.textContent = `${this.homeTeam.flag} ${this.homeTeam.name} ${this.homeScore} : ${this.awayScore} ${this.awayTeam.name} ${this.awayTeam.flag}  •  ${halfText} ${clockText}  •  ${diffProf.shortKo}  •  ⚽ ${ballCfg.name}`;
+    }
+  }
+
+  public togglePause(): boolean {
+    this.setPaused(!this.isPaused);
+    return this.isPaused;
   }
 
   public substituteTiredPlayer(): void {
@@ -881,7 +1011,12 @@ export class Game {
     const dt = Math.min(0.05, (now - this.lastFrameTime) / 1000);
     this.lastFrameTime = now;
 
-    this.update(dt);
+    const lobbyEl = document.getElementById('lobby-modal');
+    const isLobbyOpen = lobbyEl ? !lobbyEl.classList.contains('hidden') : false;
+
+    if (!this.isPaused && !isLobbyOpen) {
+      this.update(dt);
+    }
     this.renderer.render(this.scene, this.camera);
     this.renderRadarMinimap();
   };
@@ -1394,26 +1529,34 @@ export class Game {
   private updatePlayerAI(p: Player, dt: number): void {
     if (p.slideTimer > 0 || p.fallenTimer > 0 || p.diveTimer > 0 || p.celebrationTimer > 0) return;
 
+    const isAway = p.team === 'AWAY';
+    const diff = DIFFICULTY_PROFILES[this.difficulty];
+
     // 1. Goalkeeper AI
     if (p.role === 'GK') {
       const goalX = p.team === 'HOME' ? -Stadium.HALF_LENGTH + 1.4 : Stadium.HALF_LENGTH - 1.4;
-      const targetZ = THREE.MathUtils.clamp(this.ball.position.z * 0.36, -4.6, 4.6);
+      const trackRatio = isAway ? 0.36 * Math.min(1.25, diff.aiGkSpeedMult) : 0.36;
+      const targetZ = THREE.MathUtils.clamp(this.ball.position.z * trackRatio, -4.6, 4.6);
       const gkTarget = new THREE.Vector3(goalX, 0, targetZ);
 
       const ballSpeedX = p.team === 'HOME' ? -this.ball.velocity.x : this.ball.velocity.x;
       const distToGoalX = Math.abs(this.ball.position.x - goalX);
-      if (ballSpeedX > 11 && distToGoalX < 15 && Math.abs(this.ball.position.z) < 7.5) {
+      const diveTriggerSpeed = isAway ? 12.5 / diff.aiGkSpeedMult : 11;
+      const diveDetectDist = isAway ? 14.5 * diff.aiGkSpeedMult : 15;
+      if (ballSpeedX > diveTriggerSpeed && distToGoalX < diveDetectDist && Math.abs(this.ball.position.z) < 7.5) {
         const predictedZ = this.ball.position.z + this.ball.velocity.z * (distToGoalX / ballSpeedX);
         const diffZ = predictedZ - p.position.z;
-        if (Math.abs(diffZ) > 1.35) {
+        const diveThreshold = isAway ? 1.55 / diff.aiGkSpeedMult : 1.35;
+        if (Math.abs(diffZ) > diveThreshold) {
           p.triggerGKDive(Math.sign(diffZ));
           return;
         }
       }
 
+      const gkSpd = isAway ? diff.aiGkSpeedMult : 1.0;
       const toTarget = gkTarget.sub(p.position);
-      p.velocity.x = toTarget.x * 5.0;
-      p.velocity.z = toTarget.z * 5.5;
+      p.velocity.x = toTarget.x * 5.0 * gkSpd;
+      p.velocity.z = toTarget.z * 5.5 * gkSpd;
       p.facingAngle = p.team === 'HOME' ? Math.PI / 2 : -Math.PI / 2;
 
       if (this.ball.ownerId === p.id) {
@@ -1432,11 +1575,20 @@ export class Game {
       const distToGoal = toGoal.length();
       toGoal.normalize();
 
-      if (distToGoal < 24 && Math.random() < dt * 2.2) {
-        const aimZ = (Math.random() - 0.5) * (Stadium.GOAL_HALF_WIDTH * 1.5);
+      const shootFreq = isAway ? 2.2 * diff.aiShootFreqMult : 2.2;
+      const maxShootDist = isAway && (this.difficulty === 'HARD' || this.difficulty === 'LEGEND') ? 27 : 24;
+      if (distToGoal < maxShootDist && Math.random() < dt * shootFreq) {
+        // On HARD/LEGEND, AI aims deliberately toward corners; on EASY, wider scatter
+        let aimZ = (Math.random() - 0.5) * (Stadium.GOAL_HALF_WIDTH * 1.5);
+        if (isAway && (this.difficulty === 'HARD' || this.difficulty === 'LEGEND')) {
+          aimZ = (Math.random() < 0.5 ? -1 : 1) * (2.2 + Math.random() * 1.4);
+        } else if (isAway && this.difficulty === 'EASY') {
+          aimZ = (Math.random() - 0.5) * (Stadium.GOAL_HALF_WIDTH * 2.2);
+        }
         const shotDir = new THREE.Vector3(attackGoalX - p.position.x, 0, aimZ - p.position.z).normalize();
         p.kickAnimTimer = 0.26;
-        this.ball.kick(shotDir, 25.0 * p.shootStat, 4.4, (Math.random() - 0.5) * 1.1, p.id, p.team);
+        const shotSpd = 25.0 * p.shootStat * (isAway ? diff.aiShootSpeedMult : 1.0);
+        this.ball.kick(shotDir, shotSpd, 4.4, (Math.random() - 0.5) * 1.1, p.id, p.team);
         this.audio.playKick(0.85);
         this.commentary.announce(`${p.starName} 과감한 중거리 슈팅!`, 'normal');
         return;
@@ -1446,7 +1598,8 @@ export class Game {
       const closestOpp = opponents.find(
         (opp) => !opp.isSentOff && opp.position.distanceTo(p.position) < 4.2
       );
-      if (closestOpp && Math.random() < dt * 2.5) {
+      const passFreq = isAway ? 2.5 * diff.aiPassFreqMult : 2.5;
+      if (closestOpp && Math.random() < dt * passFreq) {
         const mate = this.findBestTeammateForPass(p, toGoal, false);
         if (mate) {
           const passDir = mate.position.clone().sub(p.position).normalize();
@@ -1457,7 +1610,8 @@ export class Game {
         }
       }
 
-      p.velocity.set(toGoal.x * 7.6 * p.speedStat, 0, toGoal.z * 7.6 * p.speedStat);
+      const dribbleSpd = 7.6 * p.speedStat * (isAway ? diff.aiSpeedMult : 1.0);
+      p.velocity.set(toGoal.x * dribbleSpd, 0, toGoal.z * dribbleSpd);
       return;
     }
 
@@ -1483,7 +1637,8 @@ export class Game {
       const dist = toBall.length();
       if (dist > 0.5) {
         toBall.normalize();
-        p.velocity.set(toBall.x * 7.6 * p.speedStat, 0, toBall.z * 7.6 * p.speedStat);
+        const chaseSpd = 7.6 * p.speedStat * (isAway ? diff.aiSpeedMult : 1.0);
+        p.velocity.set(toBall.x * chaseSpd, 0, toBall.z * chaseSpd);
       }
 
       const ballOwner = this.players.find((pl) => pl.id === this.ball.ownerId);
@@ -1493,7 +1648,7 @@ export class Game {
         ballOwner.team === 'HOME' &&
         dist > 1.5 &&
         dist < 3.4 &&
-        Math.random() < dt * 0.65
+        Math.random() < dt * 0.65 * diff.aiTackleFreqMult
       ) {
         p.triggerSlideTackle(toBall);
       }
@@ -1515,7 +1670,7 @@ export class Game {
     const distForm = toForm.length();
     if (distForm > 1.2) {
       toForm.normalize();
-      const spd = Math.min(6.8, distForm * 1.6);
+      const spd = Math.min(6.8, distForm * 1.6) * (isAway ? diff.aiSpeedMult : 1.0);
       p.velocity.set(toForm.x * spd, 0, toForm.z * spd);
     } else {
       p.velocity.multiplyScalar(0.75);
@@ -1840,8 +1995,9 @@ export class Game {
       );
       if (defendingGK) {
         if (isUserKicker) {
+          const diveAcc = DIFFICULTY_PROFILES[this.difficulty].aiGkDiveAccuracy;
           const aiDiveDir =
-            Math.random() < 0.38
+            Math.random() < diveAcc
               ? Math.sign(this.setPieceAimZ)
               : Math.random() < 0.5
               ? -1
@@ -1941,7 +2097,14 @@ export class Game {
 
           if (this.ball.ownerId && this.ball.ownerId !== p.id) {
             const currentOwner = this.players.find((o) => o.id === this.ball.ownerId);
-            if (currentOwner && currentOwner.team !== p.team && currentOwner.skillTimer <= 0 && Math.random() < dt * 3.8) {
+            const stealRate =
+              p.team === 'AWAY' ? 3.8 * DIFFICULTY_PROFILES[this.difficulty].aiStealMult : 4.2;
+            if (
+              currentOwner &&
+              currentOwner.team !== p.team &&
+              currentOwner.skillTimer <= 0 &&
+              Math.random() < dt * stealRate
+            ) {
               this.ball.ownerId = p.id;
               this.ball.lastTouchTeam = p.team;
               this.pendingOffsideReceiverId = null;
@@ -2125,32 +2288,32 @@ export class Game {
 
     ctx.clearRect(0, 0, w, h);
 
-    ctx.fillStyle = 'rgba(15, 42, 28, 0.86)';
+    ctx.fillStyle = 'rgba(15, 42, 28, 0.62)';
     ctx.fillRect(0, 0, w, h);
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(4, 4, w - 8, h - 8);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.38)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(3, 3, w - 6, h - 6);
 
     ctx.beginPath();
-    ctx.moveTo(w / 2, 4);
-    ctx.lineTo(w / 2, h - 4);
+    ctx.moveTo(w / 2, 3);
+    ctx.lineTo(w / 2, h - 3);
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(w / 2, h / 2, 12, 0, Math.PI * 2);
+    ctx.arc(w / 2, h / 2, 7.5, 0, Math.PI * 2);
     ctx.stroke();
 
-    const mapX = (x: number) => ((x + Stadium.HALF_LENGTH) / (Stadium.HALF_LENGTH * 2)) * (w - 8) + 4;
-    const mapZ = (z: number) => ((z + Stadium.HALF_WIDTH) / (Stadium.HALF_WIDTH * 2)) * (h - 8) + 4;
+    const mapX = (x: number) => ((x + Stadium.HALF_LENGTH) / (Stadium.HALF_LENGTH * 2)) * (w - 6) + 3;
+    const mapZ = (z: number) => ((z + Stadium.HALF_WIDTH) / (Stadium.HALF_WIDTH * 2)) * (h - 6) + 3;
 
     // Draw Offside Line on Radar
     const offX = mapX(this.northLinesman.offsideLineX);
-    ctx.strokeStyle = 'rgba(250, 204, 21, 0.35)';
-    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = 'rgba(250, 204, 21, 0.32)';
+    ctx.setLineDash([2, 2]);
     ctx.beginPath();
-    ctx.moveTo(offX, 4);
-    ctx.lineTo(offX, h - 4);
+    ctx.moveTo(offX, 3);
+    ctx.lineTo(offX, h - 3);
     ctx.stroke();
     ctx.setLineDash([]);
 
@@ -2160,17 +2323,17 @@ export class Game {
       const pz = mapZ(p.position.z);
 
       ctx.beginPath();
-      ctx.arc(px, pz, p.isControlled ? 4.8 : 3.6, 0, Math.PI * 2);
+      ctx.arc(px, pz, p.isControlled ? 3.2 : 2.3, 0, Math.PI * 2);
       ctx.fillStyle = p.team === 'HOME' ? this.homeTeam.uiHex : this.awayTeam.uiHex;
       ctx.fill();
 
       if (p.isControlled) {
         ctx.strokeStyle = '#00e5ff';
-        ctx.lineWidth = 1.8;
+        ctx.lineWidth = 1.2;
         ctx.stroke();
       } else if (p.yellowCards > 0) {
         ctx.strokeStyle = '#ffea00';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.1;
         ctx.stroke();
       }
     }
@@ -2179,22 +2342,22 @@ export class Game {
     const rx = mapX(this.referee.position.x);
     const rz = mapZ(this.referee.position.z);
     ctx.fillStyle = '#d4ff00';
-    ctx.fillRect(rx - 3.5, rz - 3.5, 7, 7);
+    ctx.fillRect(rx - 2, rz - 2, 4, 4);
 
     // Draw North & South Assistant Referees (Linesmen) on Radar
     ctx.fillStyle = '#ff9100';
-    ctx.fillRect(mapX(this.northLinesman.position.x) - 3, 1, 6, 5);
-    ctx.fillRect(mapX(this.southLinesman.position.x) - 3, h - 6, 6, 5);
+    ctx.fillRect(mapX(this.northLinesman.position.x) - 2, 1, 4, 3);
+    ctx.fillRect(mapX(this.southLinesman.position.x) - 2, h - 4, 4, 3);
 
     // Draw World Cup Ball
     const bx = mapX(this.ball.position.x);
     const bz = mapZ(this.ball.position.z);
     ctx.beginPath();
-    ctx.arc(bx, bz, 4.2, 0, Math.PI * 2);
+    ctx.arc(bx, bz, 2.7, 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
     ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1;
     ctx.stroke();
   }
 
@@ -2276,7 +2439,14 @@ export class Game {
 
   public updateModeSpecificHUD(): void {
     const modeEl = document.getElementById('hud-mode-status');
+    const diffEl = document.getElementById('hud-diff-status');
     const nextRoundBtn = document.getElementById('btn-quick-next-round');
+
+    if (diffEl) {
+      const prof = DIFFICULTY_PROFILES[this.difficulty];
+      diffEl.textContent = `🎚️ 난이도: ${prof.shortKo}`;
+    }
+
     if (!modeEl) return;
 
     if (this.gameMode === 'TOURNAMENT') {

@@ -42,7 +42,10 @@
       <!-- Referee, Official Ball & Mode/Tactics Live Status Pills -->
       <div class="status-pills">
         <div class="pill ball-pill" id="hud-ball-name" title="터치하여 월드컵 공인구 즉시 변경">
-          ⚽ 알 리흘라 (Al Rihla)
+          ⚽ 트리온다 (Trionda)
+        </div>
+        <div class="pill diff-pill" id="hud-diff-status" title="터치하여 AI 난이도(쉬움/보통/어려움/레전드) 즉시 변경">
+          🎚️ 난이도: ⚽보통
         </div>
         <div class="pill ref-pill" id="hud-ref-status">
           👨‍⚖️ 주심 11.0m • 🚩 부심 감시 중
@@ -54,7 +57,10 @@
 
       <!-- Tablet Quick Test & Director Toolbar -->
       <div class="quick-toolbar">
-        <button class="q-btn q-ball" id="btn-quick-ball" title="월드컵 공인구 5종 변경">
+        <button class="q-btn q-pause" id="btn-quick-pause" title="게임 일시정지 / 재개 (단축키: P 또는 ESC)">
+          ⏸️ 일시정지
+        </button>
+        <button class="q-btn q-ball" id="btn-quick-ball" title="월드컵 공인구 6종 변경 (2026 트리온다 포함)">
           ⚽ 공인구
         </button>
         <button class="q-btn q-fk" id="btn-quick-fk" title="배니싱 스프레이 + 프리킥 즉시 체험">
@@ -189,19 +195,13 @@
         <div class="joy-hint">이동 / 조준 (WASD·터치)</div>
       </div>
 
-      <!-- Center: Live Korean Commentary Bar + 2D Pitch Radar Minimap -->
+      <!-- Center: Live Korean Commentary Bar + Compact 2D Pitch Radar Minimap -->
       <div class="center-bottom-stack">
         <div id="commentary-bar" class="commentary-bar">
           <span id="commentary-text">🎙️ 대한민국 대 브라질, 월드컵 매치 킥오프합니다!</span>
         </div>
-        <div class="radar-wrap">
-          <canvas id="radar-canvas" width="210" height="136"></canvas>
-          <div class="radar-legend">
-            <span><i class="dot dot-ref"></i>주심(REF)</span>
-            <span><i class="dot dot-ar"></i>선심(AR)</span>
-            <span><i class="dot dot-ball"></i>월드컵공</span>
-            <span><i class="dot dot-yc"></i>경고보유</span>
-          </div>
+        <div class="radar-wrap" id="radar-wrap" title="터치하여 미니맵 숨기기/표시 전환">
+          <canvas id="radar-canvas" width="124" height="74"></canvas>
         </div>
       </div>
 
@@ -243,7 +243,7 @@
             <span class="lobby-badge">FIFA WORLD CUP 3D • ALL 12 EXPANSION PACKS INCLUDED</span>
             <h1>⚽ 3D 월드컵 축구 매치 센터</h1>
             <p>
-              월드컵 공인구 5종, 주심/선심(오프사이드·배니싱 스프레이·VAR), 옐로/레드카드, 프리킥·페널티킥·코너킥·스로인, 골 리플레이, 스타 선수 스탯/체력/개인기, 토너먼트·승부차기·프리킥 챌린지 모드가 모두 탑재되었습니다.
+              2026 북중미 월드컵 공인구 트리온다(Trionda)를 포함한 역대 월드컵 공인구 6종, 주심/선심(오프사이드·배니싱 스프레이·VAR), 옐로/레드카드, 프리킥·페널티킥·코너킥·스로인, 골 리플레이, 스타 선수 스탯/체력/개인기, 토너먼트·승부차기·프리킥 챌린지 모드가 모두 탑재되었습니다.
             </p>
           </div>
           <button id="btn-close-lobby" class="lobby-close-btn" title="닫기">✕</button>
@@ -302,7 +302,7 @@
               </div>
             </div>
 
-            <div class="format-row">
+            <div class="format-row" style="margin-bottom: 10px">
               <label>경기 인원 구성 (태블릿 추천: 7 vs 7)</label>
               <div class="segmented-group" id="team-size-group">
                 <button type="button" class="seg-btn" data-size="5">5 vs 5 (스피드)</button>
@@ -310,11 +310,21 @@
                 <button type="button" class="seg-btn" data-size="11">11 vs 11 (정규 매치)</button>
               </div>
             </div>
+
+            <div class="format-row">
+              <label>AI 난이도 선택 (인게임 및 일시정지 중에도 실시간 변경 가능)</label>
+              <div class="segmented-group" id="difficulty-group">
+                <button type="button" class="seg-btn" data-diff="EASY">🌱 쉬움</button>
+                <button type="button" class="seg-btn active" data-diff="NORMAL">⚽ 보통 (추천)</button>
+                <button type="button" class="seg-btn" data-diff="HARD">🔥 어려움</button>
+                <button type="button" class="seg-btn" data-diff="LEGEND">👑 레전드</button>
+              </div>
+            </div>
           </div>
 
-          <!-- World Cup Official Match Ball Selector (5 Iconic Balls) -->
+          <!-- World Cup Official Match Ball Selector (6 Iconic Balls: 2002~2026) -->
           <div class="lobby-section">
-            <h3>2. 월드컵 공인구 선택 (구종별 물리·스핀 특성 적용)</h3>
+            <h3>2. 월드컵 공인구 6종 선택 (2026 트리온다 ~ 2002 피버노바 · 구종별 실제 패널 & 물리 적용)</h3>
             <div id="ball-selector-grid" class="ball-selector-grid"></div>
           </div>
         </div>
@@ -323,6 +333,66 @@
           <button id="btn-start-match" class="start-match-btn">
             ⚽ KICK OFF! 선택한 모드로 경기 시작하기
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- In-Game Pause Overlay Modal -->
+    <div id="pause-modal" class="lobby-modal pause-modal hidden">
+      <div class="pause-card">
+        <div class="pause-header">
+          <span class="lobby-badge">MATCH PAUSED • 단축키 P / ESC</span>
+          <h2>⏸️ 경기 일시정지</h2>
+          <p id="pause-match-summary" class="pause-summary">
+            🇰🇷 대한민국 0 : 0 브라질 🇧🇷 • 전반(1ST) 00:00
+          </p>
+        </div>
+
+        <div class="pause-controls-stack">
+          <div class="pause-row">
+            <label>🎚️ AI 난이도 즉시 변경</label>
+            <div class="segmented-group" id="pause-difficulty-group">
+              <button type="button" class="seg-btn" data-diff="EASY">🌱 쉬움</button>
+              <button type="button" class="seg-btn active" data-diff="NORMAL">⚽ 보통</button>
+              <button type="button" class="seg-btn" data-diff="HARD">🔥 어려움</button>
+              <button type="button" class="seg-btn" data-diff="LEGEND">👑 레전드</button>
+            </div>
+          </div>
+
+          <div class="pause-row">
+            <label>📋 팀 전술 즉시 변경</label>
+            <div class="segmented-group" id="pause-tactics-group">
+              <button type="button" class="seg-btn" data-stance="ATTACK">🔥 총공격</button>
+              <button type="button" class="seg-btn active" data-stance="BALANCED">⚖️ 밸런스</button>
+              <button type="button" class="seg-btn" data-stance="DEFEND">🛡️ 철벽수비</button>
+            </div>
+          </div>
+
+          <div class="pause-row">
+            <label>⚽ 월드컵 공인구 즉시 변경</label>
+            <div class="segmented-group pause-ball-group" id="pause-ball-group">
+              <button type="button" class="seg-btn active" data-ball="trionda_26">2026 트리온다</button>
+              <button type="button" class="seg-btn" data-ball="al_rihla">2022 알 리흘라</button>
+              <button type="button" class="seg-btn" data-ball="telstar_18">2018 텔스타18</button>
+              <button type="button" class="seg-btn" data-ball="brazuca">2014 브라주카</button>
+              <button type="button" class="seg-btn" data-ball="jabulani">2010 자불라니</button>
+              <button type="button" class="seg-btn" data-ball="fevernova">2002 피버노바</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="pause-actions">
+          <button type="button" id="btn-resume-match" class="start-match-btn pause-resume-btn">
+            ▶️ 경기 계속하기 (RESUME)
+          </button>
+          <div class="pause-sub-actions">
+            <button type="button" id="btn-restart-match" class="pause-secondary-btn">
+              🔄 처음부터 다시 시작
+            </button>
+            <button type="button" id="btn-pause-to-lobby" class="pause-secondary-btn">
+              ⚙️ 매치센터 (팀·모드 설정)
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,8 +1,9 @@
 import { Game } from './Game';
 import { WORLD_CUP_BALLS, WorldCupBall } from './entities/WorldCupBall';
-import { GameMode, WorldCupBallId } from './types';
+import { DifficultyLevel, GameMode, TacticalStance, WorldCupBallId } from './types';
 
 const BALL_ORDER: WorldCupBallId[] = [
+  'trionda_26',
   'al_rihla',
   'telstar_18',
   'brazuca',
@@ -14,9 +15,32 @@ window.addEventListener('DOMContentLoaded', () => {
   const container = document.getElementById('game-container')!;
   const game = new Game(container);
 
-  let selectedBallId: WorldCupBallId = 'al_rihla';
+  let selectedBallId: WorldCupBallId = 'trionda_26';
   let selectedTeamSize: 5 | 7 | 11 = 7;
   let selectedGameMode: GameMode = 'EXHIBITION';
+  let selectedDifficulty: DifficultyLevel = 'NORMAL';
+
+  const syncControlGroupsUI = () => {
+    // Sync Difficulty buttons in Lobby & Pause Modal
+    document
+      .querySelectorAll('#difficulty-group .seg-btn, #pause-difficulty-group .seg-btn')
+      .forEach((b) => {
+        const d = (b as HTMLElement).dataset.diff as DifficultyLevel | undefined;
+        b.classList.toggle('active', d === selectedDifficulty);
+      });
+
+    // Sync Tactics buttons in Pause Modal
+    document.querySelectorAll('#pause-tactics-group .seg-btn').forEach((b) => {
+      const st = (b as HTMLElement).dataset.stance as TacticalStance | undefined;
+      b.classList.toggle('active', st === game.tacticalStance);
+    });
+
+    // Sync Ball buttons in Pause Modal
+    document.querySelectorAll('#pause-ball-group .seg-btn').forEach((b) => {
+      const bId = (b as HTMLElement).dataset.ball as WorldCupBallId | undefined;
+      b.classList.toggle('active', bId === selectedBallId);
+    });
+  };
 
   // 1. Render World Cup Official Ball Selector Cards with 2D Spherical Previews
   const ballGrid = document.getElementById('ball-selector-grid')!;
@@ -28,18 +52,11 @@ window.addEventListener('DOMContentLoaded', () => {
       card.className = `ball-card ${selectedBallId === ballId ? 'active' : ''}`;
 
       const canvas = document.createElement('canvas');
-      canvas.width = 112;
-      canvas.height = 112;
+      canvas.width = 136;
+      canvas.height = 136;
       canvas.className = 'ball-preview-canvas';
       const ctx = canvas.getContext('2d')!;
-      WorldCupBall.paintTexturePattern(ctx, 112, 112, ballId);
-
-      const grad = ctx.createRadialGradient(34, 32, 8, 56, 56, 56);
-      grad.addColorStop(0, 'rgba(255,255,255,0.35)');
-      grad.addColorStop(0.65, 'rgba(0,0,0,0.0)');
-      grad.addColorStop(1, 'rgba(0,0,0,0.48)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 112, 112);
+      WorldCupBall.paintTexturePattern(ctx, 136, 136, ballId);
 
       const title = document.createElement('div');
       title.className = 'ball-card-title';
@@ -59,6 +76,7 @@ window.addEventListener('DOMContentLoaded', () => {
         game.ball.setBallStyle(ballId);
         game.updateScoreboardHUD();
         renderBallCards();
+        syncControlGroupsUI();
       });
 
       ballGrid.appendChild(card);
@@ -76,7 +94,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 3. Team Size Segmented Selector
+  // 3. Team Size Segmented Selector & Difficulty Selector
   const sizeGroup = document.getElementById('team-size-group')!;
   sizeGroup.querySelectorAll('.seg-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -87,7 +105,21 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // 4. Lobby Modal Open / Close / Start Match
+  document
+    .querySelectorAll('#difficulty-group .seg-btn, #pause-difficulty-group .seg-btn')
+    .forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const diff = ((btn as HTMLElement).dataset.diff || 'NORMAL') as DifficultyLevel;
+        selectedDifficulty = diff;
+        game.setDifficulty(diff, true);
+        if (game.isPaused) {
+          game.setPaused(true); // Refresh pause summary text
+        }
+        syncControlGroupsUI();
+      });
+    });
+
+  // 4. Lobby Modal Open / Close / Start Match & Pause Modal Controls
   const lobbyModal = document.getElementById('lobby-modal')!;
   const closeLobby = () => {
     game.audio.unlock();
@@ -96,10 +128,11 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('btn-close-lobby')?.addEventListener('click', closeLobby);
   document.getElementById('btn-open-lobby')?.addEventListener('click', () => {
+    game.setPaused(false);
     lobbyModal.classList.remove('hidden');
   });
 
-  document.getElementById('btn-start-match')?.addEventListener('click', () => {
+  const startCurrentConfiguredMatch = () => {
     game.audio.unlock();
     const homeSelect = document.getElementById('select-home-team') as HTMLSelectElement;
     const awaySelect = document.getElementById('select-away-team') as HTMLSelectElement;
@@ -112,10 +145,70 @@ window.addEventListener('DOMContentLoaded', () => {
       teamSize: selectedTeamSize,
       ballId: selectedBallId,
       halfDurationSec: 180,
-      gameMode: selectedGameMode
+      gameMode: selectedGameMode,
+      difficulty: selectedDifficulty
     });
     lobbyModal.classList.add('hidden');
+    game.setPaused(false);
+    syncControlGroupsUI();
     game.audio.playWhistle('short');
+  };
+
+  document.getElementById('btn-start-match')?.addEventListener('click', startCurrentConfiguredMatch);
+
+  // Pause Modal & Quick Pause Wiring
+  const toggleGamePause = () => {
+    game.audio.unlock();
+    if (!lobbyModal.classList.contains('hidden')) {
+      closeLobby();
+      return;
+    }
+    game.togglePause();
+    syncControlGroupsUI();
+  };
+
+  document.getElementById('btn-quick-pause')?.addEventListener('click', toggleGamePause);
+  document.getElementById('btn-resume-match')?.addEventListener('click', () => {
+    game.audio.unlock();
+    game.setPaused(false);
+  });
+  document.getElementById('btn-restart-match')?.addEventListener('click', () => {
+    startCurrentConfiguredMatch();
+  });
+  document.getElementById('btn-pause-to-lobby')?.addEventListener('click', () => {
+    game.setPaused(false);
+    lobbyModal.classList.remove('hidden');
+  });
+
+  document.querySelectorAll('#pause-tactics-group .seg-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const st = ((btn as HTMLElement).dataset.stance || 'BALANCED') as TacticalStance;
+      game.tacticalStance = st;
+      game.updateModeSpecificHUD();
+      syncControlGroupsUI();
+    });
+  });
+
+  document.querySelectorAll('#pause-ball-group .seg-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const bId = ((btn as HTMLElement).dataset.ball || 'trionda_26') as WorldCupBallId;
+      selectedBallId = bId;
+      game.ball.setBallStyle(bId);
+      game.updateScoreboardHUD();
+      if (game.isPaused) {
+        game.setPaused(true);
+      }
+      renderBallCards();
+      syncControlGroupsUI();
+    });
+  });
+
+  window.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.repeat) return;
+    if (e.code === 'KeyP' || e.code === 'Escape') {
+      e.preventDefault();
+      toggleGamePause();
+    }
   });
 
   // 5. Quick Toolbar Actions
@@ -127,6 +220,7 @@ window.addEventListener('DOMContentLoaded', () => {
     game.ball.setBallStyle(nextId);
     game.updateScoreboardHUD();
     renderBallCards();
+    syncControlGroupsUI();
     const cfg = WORLD_CUP_BALLS[nextId];
     game.showBanner(
       `⚽ ${cfg.name}`,
@@ -139,12 +233,26 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-quick-ball')?.addEventListener('click', cycleBall);
   document.getElementById('hud-ball-name')?.addEventListener('click', cycleBall);
 
+  document.getElementById('hud-diff-status')?.addEventListener('click', () => {
+    game.audio.unlock();
+    selectedDifficulty = game.cycleDifficulty();
+    syncControlGroupsUI();
+  });
+
   document.getElementById('hud-mode-status')?.addEventListener('click', () => {
     game.cycleTacticalStance();
+    syncControlGroupsUI();
+  });
+
+  // Tap on Radar Minimap to collapse/expand if the user wants even more screen space on tablet
+  const radarWrap = document.getElementById('radar-wrap');
+  radarWrap?.addEventListener('click', () => {
+    radarWrap.classList.toggle('radar-collapsed');
   });
 
   document.getElementById('btn-quick-fk')?.addEventListener('click', () => {
     game.audio.unlock();
+    game.setPaused(false);
     lobbyModal.classList.add('hidden');
     const spots: [number, number][] = [
       [29, 7.5],
@@ -157,42 +265,49 @@ window.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('btn-quick-pk')?.addEventListener('click', () => {
     game.audio.unlock();
+    game.setPaused(false);
     lobbyModal.classList.add('hidden');
     game.triggerInstantPenaltyKick('HOME');
   });
 
   document.getElementById('btn-quick-ck')?.addEventListener('click', () => {
     game.audio.unlock();
+    game.setPaused(false);
     lobbyModal.classList.add('hidden');
     game.triggerInstantCornerKick();
   });
 
   document.getElementById('btn-quick-yc')?.addEventListener('click', () => {
     game.audio.unlock();
+    game.setPaused(false);
     lobbyModal.classList.add('hidden');
     game.triggerInstantFoulCardDemo(false, false);
   });
 
   document.getElementById('btn-quick-rc')?.addEventListener('click', () => {
     game.audio.unlock();
+    game.setPaused(false);
     lobbyModal.classList.add('hidden');
     game.triggerInstantFoulCardDemo(true, false);
   });
 
   document.getElementById('btn-quick-var')?.addEventListener('click', () => {
     game.audio.unlock();
+    game.setPaused(false);
     lobbyModal.classList.add('hidden');
     game.triggerInstantFoulCardDemo(false, true);
   });
 
   document.getElementById('btn-quick-sub')?.addEventListener('click', () => {
     game.audio.unlock();
+    game.setPaused(false);
     lobbyModal.classList.add('hidden');
     game.substituteTiredPlayer();
   });
 
   document.getElementById('btn-quick-next-round')?.addEventListener('click', () => {
     game.audio.unlock();
+    game.setPaused(false);
     lobbyModal.classList.add('hidden');
     game.advanceTournamentStage();
   });

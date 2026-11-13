@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 export type WorldCupBallId =
+  | 'trionda_26'
   | 'al_rihla'
   | 'telstar_18'
   | 'brazuca'
@@ -48,6 +49,8 @@ export type GameMode =
   | 'PENALTY_SHOOTOUT'
   | 'FREE_KICK_CHALLENGE';
 
+export type DifficultyLevel = 'EASY' | 'NORMAL' | 'HARD' | 'LEGEND';
+
 export type TacticalStance = 'ATTACK' | 'BALANCED' | 'DEFEND';
 
 export type MatchState =
@@ -90,6 +93,7 @@ export interface MatchSettings {
   ballId: WorldCupBallId;
   halfDurationSec: number;
   gameMode: GameMode;
+  difficulty?: DifficultyLevel;
 }
 
 export interface ReplayActorSnapshot {
