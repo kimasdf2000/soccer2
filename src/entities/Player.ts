@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { StarPlayerProfile, TeamConfig } from '../types';
+import { ControllerSlot, StarPlayerProfile, TeamConfig } from '../types';
 
 export const TEAMS: Record<string, TeamConfig> = {
   KOR: {
@@ -169,6 +169,303 @@ export const TEAMS: Record<string, TeamConfig> = {
     bench: [
       { num: 14, name: 'FULLKRUG', role: 'FW', speedStat: 1.0, shootStat: 1.18, curveStat: 1.02 }
     ]
+  },
+  ESP: {
+    id: 'ESP',
+    name: '스페인 (SPAIN)',
+    shortName: 'ESP',
+    flag: '🇪🇸',
+    primaryColor: 0xdc2626,
+    secondaryColor: 0xfacc15,
+    shortsColor: 0x1e3a8a,
+    gkColor: 0x10b981,
+    uiHex: '#dc2626',
+    roster: [
+      { num: 1, name: 'UNAI SIMON', role: 'GK', speedStat: 1.02, shootStat: 0.9, curveStat: 0.9 },
+      { num: 3, name: 'LE NORMAND', role: 'DF', speedStat: 1.04, shootStat: 0.92, curveStat: 0.9 },
+      { num: 4, name: 'LAPORTE', role: 'DF', speedStat: 1.04, shootStat: 0.94, curveStat: 0.94 },
+      { num: 2, name: 'CARVAJAL', role: 'DF', speedStat: 1.08, shootStat: 0.98, curveStat: 1.04 },
+      { num: 24, name: 'CUCURELLA', role: 'DF', speedStat: 1.1, shootStat: 0.94, curveStat: 1.02 },
+      { num: 16, name: 'RODRI', role: 'MF', speedStat: 1.04, shootStat: 1.16, curveStat: 1.12 },
+      { num: 8, name: 'FABIAN R.', role: 'MF', speedStat: 1.05, shootStat: 1.14, curveStat: 1.16 },
+      { num: 20, name: 'PEDRI', role: 'MF', speedStat: 1.09, shootStat: 1.08, curveStat: 1.2 },
+      { num: 17, name: 'N. WILLIAMS', role: 'FW', speedStat: 1.18, shootStat: 1.12, curveStat: 1.15 },
+      { num: 7, name: 'MORATA', role: 'FW', speedStat: 1.06, shootStat: 1.14, curveStat: 1.04 },
+      { num: 19, name: 'L. YAMAL', role: 'FW', speedStat: 1.17, shootStat: 1.15, curveStat: 1.24 }
+    ],
+    bench: [
+      { num: 10, name: 'DANI OLMO', role: 'MF', speedStat: 1.09, shootStat: 1.15, curveStat: 1.18 }
+    ]
+  },
+  POR: {
+    id: 'POR',
+    name: '포르투갈 (PORTUGAL)',
+    shortName: 'POR',
+    flag: '🇵🇹',
+    primaryColor: 0xb91c1c,
+    secondaryColor: 0x15803d,
+    shortsColor: 0x15803d,
+    gkColor: 0xf59e0b,
+    uiHex: '#b91c1c',
+    roster: [
+      { num: 1, name: 'DIOGO COSTA', role: 'GK', speedStat: 1.03, shootStat: 0.9, curveStat: 0.9 },
+      { num: 4, name: 'RUBEN DIAS', role: 'DF', speedStat: 1.05, shootStat: 0.92, curveStat: 0.9 },
+      { num: 3, name: 'PEPE', role: 'DF', speedStat: 1.02, shootStat: 0.9, curveStat: 0.9 },
+      { num: 20, name: 'CANCELO', role: 'DF', speedStat: 1.1, shootStat: 1.04, curveStat: 1.15 },
+      { num: 19, name: 'N. MENDES', role: 'DF', speedStat: 1.15, shootStat: 0.98, curveStat: 1.05 },
+      { num: 6, name: 'PALHINHA', role: 'MF', speedStat: 1.01, shootStat: 1.05, curveStat: 0.98 },
+      { num: 23, name: 'VITINHA', role: 'MF', speedStat: 1.09, shootStat: 1.1, curveStat: 1.16 },
+      { num: 8, name: 'BRUNO F.', role: 'MF', speedStat: 1.06, shootStat: 1.18, curveStat: 1.22 },
+      { num: 10, name: 'B. SILVA', role: 'FW', speedStat: 1.11, shootStat: 1.12, curveStat: 1.2 },
+      { num: 17, name: 'R. LEAO', role: 'FW', speedStat: 1.18, shootStat: 1.12, curveStat: 1.14 },
+      { num: 7, name: 'C. RONALDO', role: 'FW', speedStat: 1.12, shootStat: 1.22, curveStat: 1.18 }
+    ],
+    bench: [
+      { num: 21, name: 'DIOGO JOTA', role: 'FW', speedStat: 1.11, shootStat: 1.15, curveStat: 1.08 }
+    ]
+  },
+  NED: {
+    id: 'NED',
+    name: '네덜란드 (NETHERLANDS)',
+    shortName: 'NED',
+    flag: '🇳🇱',
+    primaryColor: 0xf97316,
+    secondaryColor: 0x0f172a,
+    shortsColor: 0xf97316,
+    gkColor: 0x22c55e,
+    uiHex: '#f97316',
+    roster: [
+      { num: 1, name: 'VERBRUGGEN', role: 'GK', speedStat: 1.02, shootStat: 0.9, curveStat: 0.9 },
+      { num: 4, name: 'VAN DIJK', role: 'DF', speedStat: 1.08, shootStat: 0.98, curveStat: 0.92 },
+      { num: 6, name: 'DE VRIJ', role: 'DF', speedStat: 1.02, shootStat: 0.92, curveStat: 0.9 },
+      { num: 22, name: 'DUMFRIES', role: 'DF', speedStat: 1.14, shootStat: 1.04, curveStat: 1.02 },
+      { num: 5, name: 'AKE', role: 'DF', speedStat: 1.07, shootStat: 0.94, curveStat: 0.96 },
+      { num: 14, name: 'REIJNDERS', role: 'MF', speedStat: 1.09, shootStat: 1.1, curveStat: 1.12 },
+      { num: 21, name: 'F. DE JONG', role: 'MF', speedStat: 1.09, shootStat: 1.04, curveStat: 1.14 },
+      { num: 7, name: 'X. SIMONS', role: 'MF', speedStat: 1.13, shootStat: 1.14, curveStat: 1.18 },
+      { num: 12, name: 'FRIMPONG', role: 'FW', speedStat: 1.18, shootStat: 1.06, curveStat: 1.08 },
+      { num: 10, name: 'DEPAY', role: 'FW', speedStat: 1.08, shootStat: 1.15, curveStat: 1.16 },
+      { num: 11, name: 'GAKPO', role: 'FW', speedStat: 1.14, shootStat: 1.16, curveStat: 1.16 }
+    ],
+    bench: [
+      { num: 9, name: 'WEGHORST', role: 'FW', speedStat: 0.98, shootStat: 1.16, curveStat: 0.98 }
+    ]
+  },
+  ITA: {
+    id: 'ITA',
+    name: '이탈리아 (ITALY)',
+    shortName: 'ITA',
+    flag: '🇮🇹',
+    primaryColor: 0x2563eb,
+    secondaryColor: 0xffffff,
+    shortsColor: 0xffffff,
+    gkColor: 0xfacc15,
+    uiHex: '#2563eb',
+    roster: [
+      { num: 1, name: 'DONNARUMMA', role: 'GK', speedStat: 1.03, shootStat: 0.9, curveStat: 0.9 },
+      { num: 23, name: 'BASTONI', role: 'DF', speedStat: 1.06, shootStat: 0.94, curveStat: 1.02 },
+      { num: 5, name: 'CALAFIORI', role: 'DF', speedStat: 1.08, shootStat: 0.98, curveStat: 1.04 },
+      { num: 2, name: 'DI LORENZO', role: 'DF', speedStat: 1.06, shootStat: 0.96, curveStat: 1.0 },
+      { num: 3, name: 'DIMARCO', role: 'DF', speedStat: 1.1, shootStat: 1.1, curveStat: 1.2 },
+      { num: 8, name: 'JORGINHO', role: 'MF', speedStat: 0.98, shootStat: 1.04, curveStat: 1.14 },
+      { num: 18, name: 'BARELLA', role: 'MF', speedStat: 1.12, shootStat: 1.12, curveStat: 1.14 },
+      { num: 10, name: 'PELLEGRINI', role: 'MF', speedStat: 1.05, shootStat: 1.12, curveStat: 1.16 },
+      { num: 7, name: 'FRATTESI', role: 'FW', speedStat: 1.1, shootStat: 1.1, curveStat: 1.05 },
+      { num: 9, name: 'SCAMACCA', role: 'FW', speedStat: 1.04, shootStat: 1.16, curveStat: 1.06 },
+      { num: 14, name: 'CHIESA', role: 'FW', speedStat: 1.16, shootStat: 1.14, curveStat: 1.15 }
+    ],
+    bench: [
+      { num: 20, name: 'ZACCAGNI', role: 'FW', speedStat: 1.12, shootStat: 1.12, curveStat: 1.18 }
+    ]
+  },
+  JPN: {
+    id: 'JPN',
+    name: '일본 (JAPAN)',
+    shortName: 'JPN',
+    flag: '🇯🇵',
+    primaryColor: 0x1d4ed8,
+    secondaryColor: 0xffffff,
+    shortsColor: 0x0f172a,
+    gkColor: 0xef4444,
+    uiHex: '#1d4ed8',
+    roster: [
+      { num: 1, name: 'SUZUKI', role: 'GK', speedStat: 1.01, shootStat: 0.9, curveStat: 0.9 },
+      { num: 4, name: 'ITAKURA', role: 'DF', speedStat: 1.06, shootStat: 0.92, curveStat: 0.9 },
+      { num: 16, name: 'TOMIYASU', role: 'DF', speedStat: 1.08, shootStat: 0.94, curveStat: 0.94 },
+      { num: 2, name: 'SUGAWARA', role: 'DF', speedStat: 1.09, shootStat: 1.02, curveStat: 1.08 },
+      { num: 21, name: 'ITO H.', role: 'DF', speedStat: 1.08, shootStat: 0.98, curveStat: 1.02 },
+      { num: 6, name: 'ENDO W.', role: 'MF', speedStat: 1.02, shootStat: 1.04, curveStat: 1.02 },
+      { num: 5, name: 'MORITA', role: 'MF', speedStat: 1.05, shootStat: 1.06, curveStat: 1.08 },
+      { num: 8, name: 'MINAMINO', role: 'MF', speedStat: 1.09, shootStat: 1.12, curveStat: 1.12 },
+      { num: 10, name: 'DOAN R.', role: 'FW', speedStat: 1.1, shootStat: 1.12, curveStat: 1.14 },
+      { num: 7, name: 'MITOMA', role: 'FW', speedStat: 1.16, shootStat: 1.1, curveStat: 1.16 },
+      { num: 20, name: 'KUBO T.', role: 'FW', speedStat: 1.14, shootStat: 1.12, curveStat: 1.22 }
+    ],
+    bench: [
+      { num: 14, name: 'ITO J.', role: 'FW', speedStat: 1.17, shootStat: 1.06, curveStat: 1.1 }
+    ]
+  },
+  CRO: {
+    id: 'CRO',
+    name: '크로아티아 (CROATIA)',
+    shortName: 'CRO',
+    flag: '🇭🇷',
+    primaryColor: 0xef4444,
+    secondaryColor: 0xffffff,
+    shortsColor: 0xffffff,
+    gkColor: 0x06b6d4,
+    uiHex: '#ef4444',
+    roster: [
+      { num: 1, name: 'LIVAKOVIC', role: 'GK', speedStat: 1.03, shootStat: 0.9, curveStat: 0.9 },
+      { num: 4, name: 'GVARDIOL', role: 'DF', speedStat: 1.12, shootStat: 1.02, curveStat: 1.02 },
+      { num: 6, name: 'SUTALO', role: 'DF', speedStat: 1.05, shootStat: 0.9, curveStat: 0.9 },
+      { num: 2, name: 'STANISIC', role: 'DF', speedStat: 1.06, shootStat: 0.94, curveStat: 0.96 },
+      { num: 19, name: 'SOSA', role: 'DF', speedStat: 1.05, shootStat: 0.96, curveStat: 1.1 },
+      { num: 11, name: 'BROZOVIC', role: 'MF', speedStat: 1.04, shootStat: 1.08, curveStat: 1.08 },
+      { num: 8, name: 'KOVACIC', role: 'MF', speedStat: 1.1, shootStat: 1.06, curveStat: 1.12 },
+      { num: 10, name: 'L. MODRIC', role: 'MF', speedStat: 1.04, shootStat: 1.16, curveStat: 1.25 },
+      { num: 7, name: 'MAJER', role: 'FW', speedStat: 1.06, shootStat: 1.12, curveStat: 1.16 },
+      { num: 14, name: 'PERISIC', role: 'FW', speedStat: 1.1, shootStat: 1.14, curveStat: 1.14 },
+      { num: 9, name: 'KRAMARIC', role: 'FW', speedStat: 1.07, shootStat: 1.16, curveStat: 1.14 }
+    ],
+    bench: [
+      { num: 16, name: 'BUDIMIR', role: 'FW', speedStat: 1.01, shootStat: 1.15, curveStat: 1.02 }
+    ]
+  },
+  URU: {
+    id: 'URU',
+    name: '우루과이 (URUGUAY)',
+    shortName: 'URU',
+    flag: '🇺🇾',
+    primaryColor: 0x0ea5e9,
+    secondaryColor: 0x0f172a,
+    shortsColor: 0x0f172a,
+    gkColor: 0x22c55e,
+    uiHex: '#0ea5e9',
+    roster: [
+      { num: 1, name: 'ROCHET', role: 'GK', speedStat: 1.01, shootStat: 0.9, curveStat: 0.9 },
+      { num: 4, name: 'R. ARAUJO', role: 'DF', speedStat: 1.13, shootStat: 0.94, curveStat: 0.9 },
+      { num: 2, name: 'GIMENEZ', role: 'DF', speedStat: 1.04, shootStat: 0.92, curveStat: 0.9 },
+      { num: 16, name: 'OLIVERA', role: 'DF', speedStat: 1.07, shootStat: 0.92, curveStat: 0.95 },
+      { num: 17, name: 'VINA', role: 'DF', speedStat: 1.06, shootStat: 0.94, curveStat: 0.98 },
+      { num: 5, name: 'UGARTE', role: 'MF', speedStat: 1.07, shootStat: 0.98, curveStat: 0.98 },
+      { num: 6, name: 'BENTANCUR', role: 'MF', speedStat: 1.05, shootStat: 1.08, curveStat: 1.08 },
+      { num: 15, name: 'VALVERDE', role: 'MF', speedStat: 1.15, shootStat: 1.2, curveStat: 1.14 },
+      { num: 11, name: 'PELLISTRI', role: 'FW', speedStat: 1.14, shootStat: 1.06, curveStat: 1.08 },
+      { num: 7, name: 'DE LA CRUZ', role: 'FW', speedStat: 1.1, shootStat: 1.12, curveStat: 1.18 },
+      { num: 9, name: 'D. NUNEZ', role: 'FW', speedStat: 1.17, shootStat: 1.16, curveStat: 1.08 }
+    ],
+    bench: [
+      { num: 10, name: 'SUAREZ', role: 'FW', speedStat: 1.0, shootStat: 1.2, curveStat: 1.2 }
+    ]
+  },
+  BEL: {
+    id: 'BEL',
+    name: '벨기에 (BELGIUM)',
+    shortName: 'BEL',
+    flag: '🇧🇪',
+    primaryColor: 0x991b1b,
+    secondaryColor: 0xfacc15,
+    shortsColor: 0x111827,
+    gkColor: 0x38bdf8,
+    uiHex: '#991b1b',
+    roster: [
+      { num: 1, name: 'CASTEELS', role: 'GK', speedStat: 1.01, shootStat: 0.9, curveStat: 0.9 },
+      { num: 4, name: 'FAES', role: 'DF', speedStat: 1.04, shootStat: 0.9, curveStat: 0.9 },
+      { num: 5, name: 'VERTONGHEN', role: 'DF', speedStat: 0.98, shootStat: 0.92, curveStat: 0.95 },
+      { num: 21, name: 'CASTAGNE', role: 'DF', speedStat: 1.07, shootStat: 0.95, curveStat: 0.98 },
+      { num: 3, name: 'THEATE', role: 'DF', speedStat: 1.05, shootStat: 0.92, curveStat: 0.95 },
+      { num: 24, name: 'ONANA', role: 'MF', speedStat: 1.08, shootStat: 1.02, curveStat: 0.98 },
+      { num: 8, name: 'TIELEMANS', role: 'MF', speedStat: 1.02, shootStat: 1.16, curveStat: 1.16 },
+      { num: 7, name: 'DE BRUYNE', role: 'MF', speedStat: 1.06, shootStat: 1.19, curveStat: 1.25 },
+      { num: 11, name: 'J. DOKU', role: 'FW', speedStat: 1.18, shootStat: 1.08, curveStat: 1.14 },
+      { num: 9, name: 'TROSSARD', role: 'FW', speedStat: 1.1, shootStat: 1.14, curveStat: 1.16 },
+      { num: 10, name: 'LUKAKU', role: 'FW', speedStat: 1.11, shootStat: 1.18, curveStat: 1.02 }
+    ],
+    bench: [
+      { num: 20, name: 'OPENDA', role: 'FW', speedStat: 1.17, shootStat: 1.12, curveStat: 1.06 }
+    ]
+  },
+  USA: {
+    id: 'USA',
+    name: '미국 (USA)',
+    shortName: 'USA',
+    flag: '🇺🇸',
+    primaryColor: 0xf8fafc,
+    secondaryColor: 0x1d4ed8,
+    shortsColor: 0x1e3a8a,
+    gkColor: 0xdc2626,
+    uiHex: '#2563eb',
+    roster: [
+      { num: 1, name: 'TURNER', role: 'GK', speedStat: 1.01, shootStat: 0.9, curveStat: 0.9 },
+      { num: 3, name: 'RICHARDS', role: 'DF', speedStat: 1.06, shootStat: 0.9, curveStat: 0.9 },
+      { num: 13, name: 'REAM', role: 'DF', speedStat: 0.98, shootStat: 0.9, curveStat: 0.92 },
+      { num: 2, name: 'DEST', role: 'DF', speedStat: 1.13, shootStat: 1.02, curveStat: 1.12 },
+      { num: 5, name: 'A. ROBINSON', role: 'DF', speedStat: 1.15, shootStat: 0.96, curveStat: 1.04 },
+      { num: 4, name: 'ADAMS', role: 'MF', speedStat: 1.08, shootStat: 0.98, curveStat: 0.98 },
+      { num: 8, name: 'MCKENNIE', role: 'MF', speedStat: 1.08, shootStat: 1.08, curveStat: 1.05 },
+      { num: 7, name: 'REYNA', role: 'MF', speedStat: 1.07, shootStat: 1.1, curveStat: 1.16 },
+      { num: 21, name: 'T. WEAH', role: 'FW', speedStat: 1.15, shootStat: 1.1, curveStat: 1.08 },
+      { num: 20, name: 'BALOGUN', role: 'FW', speedStat: 1.13, shootStat: 1.14, curveStat: 1.06 },
+      { num: 10, name: 'PULISIC', role: 'FW', speedStat: 1.15, shootStat: 1.15, curveStat: 1.16 }
+    ],
+    bench: [
+      { num: 9, name: 'PEPI', role: 'FW', speedStat: 1.09, shootStat: 1.13, curveStat: 1.04 }
+    ]
+  },
+  MEX: {
+    id: 'MEX',
+    name: '멕시코 (MEXICO)',
+    shortName: 'MEX',
+    flag: '🇲🇽',
+    primaryColor: 0x15803d,
+    secondaryColor: 0xdc2626,
+    shortsColor: 0xffffff,
+    gkColor: 0xf97316,
+    uiHex: '#15803d',
+    roster: [
+      { num: 1, name: 'OCHOA', role: 'GK', speedStat: 1.02, shootStat: 0.9, curveStat: 0.9 },
+      { num: 3, name: 'MONTES', role: 'DF', speedStat: 1.04, shootStat: 0.92, curveStat: 0.9 },
+      { num: 5, name: 'VASQUEZ', role: 'DF', speedStat: 1.06, shootStat: 0.9, curveStat: 0.9 },
+      { num: 2, name: 'J. SANCHEZ', role: 'DF', speedStat: 1.08, shootStat: 0.94, curveStat: 0.96 },
+      { num: 6, name: 'ARTEAGA', role: 'DF', speedStat: 1.08, shootStat: 0.95, curveStat: 0.98 },
+      { num: 4, name: 'E. ALVAREZ', role: 'MF', speedStat: 1.05, shootStat: 1.04, curveStat: 1.0 },
+      { num: 18, name: 'CHAVEZ', role: 'MF', speedStat: 1.03, shootStat: 1.16, curveStat: 1.22 },
+      { num: 17, name: 'PINEDA', role: 'MF', speedStat: 1.09, shootStat: 1.08, curveStat: 1.1 },
+      { num: 15, name: 'ANTUNA', role: 'FW', speedStat: 1.14, shootStat: 1.06, curveStat: 1.06 },
+      { num: 22, name: 'LOZANO', role: 'FW', speedStat: 1.16, shootStat: 1.12, curveStat: 1.12 },
+      { num: 9, name: 'S. GIMENEZ', role: 'FW', speedStat: 1.1, shootStat: 1.16, curveStat: 1.08 }
+    ],
+    bench: [
+      { num: 11, name: 'QUINONES', role: 'FW', speedStat: 1.12, shootStat: 1.12, curveStat: 1.06 }
+    ]
+  },
+  MAR: {
+    id: 'MAR',
+    name: '모로코 (MOROCCO)',
+    shortName: 'MAR',
+    flag: '🇲🇦',
+    primaryColor: 0xc81e1e,
+    secondaryColor: 0x047857,
+    shortsColor: 0x047857,
+    gkColor: 0x8b5cf6,
+    uiHex: '#c81e1e',
+    roster: [
+      { num: 1, name: 'BONO', role: 'GK', speedStat: 1.03, shootStat: 0.9, curveStat: 0.9 },
+      { num: 5, name: 'AGUERD', role: 'DF', speedStat: 1.07, shootStat: 0.92, curveStat: 0.9 },
+      { num: 6, name: 'SAISS', role: 'DF', speedStat: 1.01, shootStat: 0.92, curveStat: 0.9 },
+      { num: 2, name: 'A. HAKIMI', role: 'DF', speedStat: 1.18, shootStat: 1.1, curveStat: 1.14 },
+      { num: 3, name: 'MAZRAOUI', role: 'DF', speedStat: 1.09, shootStat: 0.98, curveStat: 1.04 },
+      { num: 4, name: 'AMRABAT', role: 'MF', speedStat: 1.06, shootStat: 1.02, curveStat: 0.98 },
+      { num: 8, name: 'OUNAHI', role: 'MF', speedStat: 1.1, shootStat: 1.08, curveStat: 1.14 },
+      { num: 10, name: 'BRAHIM DIAZ', role: 'MF', speedStat: 1.14, shootStat: 1.12, curveStat: 1.18 },
+      { num: 7, name: 'H. ZIYECH', role: 'FW', speedStat: 1.08, shootStat: 1.14, curveStat: 1.24 },
+      { num: 17, name: 'BOUFAL', role: 'FW', speedStat: 1.12, shootStat: 1.08, curveStat: 1.18 },
+      { num: 19, name: 'EN-NESYRI', role: 'FW', speedStat: 1.11, shootStat: 1.15, curveStat: 1.02 }
+    ],
+    bench: [
+      { num: 9, name: 'EL KAABI', role: 'FW', speedStat: 1.09, shootStat: 1.14, curveStat: 1.06 }
+    ]
   }
 };
 
@@ -230,14 +527,24 @@ export class Player {
   public diveDirZ: number = 0;
   public gkSaveCooldown: number = 0;
 
-  // Skill Move & Celebration & Throw-in States
+  // Skill Move & Celebration & Throw-in & Dash Burst States
   public skillTimer: number = 0;
   public skillCooldown: number = 0;
   public celebrationTimer: number = 0;
   public isThrowInTaker: boolean = false;
+  public dashBurstTimer: number = 0;
+  private wasSprinting: boolean = false;
 
-  public isControlled: boolean = false;
+  public controllerSlot: ControllerSlot = 'NONE';
   public inDefensiveWall: boolean = false;
+
+  public get isControlled(): boolean {
+    return this.controllerSlot !== 'NONE';
+  }
+
+  public set isControlled(val: boolean) {
+    this.controllerSlot = val ? 'P1' : 'NONE';
+  }
 
   private animPhase: number = Math.random() * Math.PI * 2;
 
@@ -517,9 +824,10 @@ export class Player {
   }
 
   public getEffectiveSpeedMultiplier(isSprinting: boolean): number {
-    const staminaFactor = 0.74 + 0.26 * (this.stamina / 100);
-    const skillBoost = this.skillTimer > 0 ? 1.28 : 1.0;
-    return this.speedStat * (isSprinting ? staminaFactor : 1.0) * skillBoost;
+    const staminaFactor = 0.9 + 0.1 * (this.stamina / 100);
+    const skillBoost = this.skillTimer > 0 ? 1.3 : 1.0;
+    const dashBurst = isSprinting && this.dashBurstTimer > 0 ? 1.18 : 1.0;
+    return this.speedStat * (isSprinting ? staminaFactor : 1.0) * skillBoost * dashBurst;
   }
 
   public update(dt: number, isSprinting: boolean = false): void {
@@ -529,6 +837,12 @@ export class Player {
     }
     this.group.visible = true;
 
+    if (isSprinting && !this.wasSprinting) {
+      this.dashBurstTimer = 0.45;
+    }
+    this.wasSprinting = isSprinting;
+    if (this.dashBurstTimer > 0) this.dashBurstTimer = Math.max(0, this.dashBurstTimer - dt);
+
     if (this.slideCooldown > 0) this.slideCooldown = Math.max(0, this.slideCooldown - dt);
     if (this.skillCooldown > 0) this.skillCooldown = Math.max(0, this.skillCooldown - dt);
     if (this.kickAnimTimer > 0) this.kickAnimTimer = Math.max(0, this.kickAnimTimer - dt);
@@ -537,9 +851,9 @@ export class Player {
     // Stamina drain / recovery
     const moveSpd = Math.hypot(this.velocity.x, this.velocity.z);
     if (isSprinting && moveSpd > 6.5) {
-      this.stamina = Math.max(8, this.stamina - dt * 5.8);
+      this.stamina = Math.max(15, this.stamina - dt * 3.2);
     } else {
-      this.stamina = Math.min(100, this.stamina + dt * 2.4);
+      this.stamina = Math.min(100, this.stamina + dt * 4.2);
     }
 
     // Goal Celebration Animation (Knee Slide + Double Arm Uppercut Jump!)
@@ -649,11 +963,15 @@ export class Player {
   }
 
   private syncIndicators(): void {
-    this.activeRing.visible = this.isControlled;
-    this.overheadArrow.visible = this.isControlled;
-    this.nameSprite.visible = this.isControlled || this.celebrationTimer > 0;
+    const controlled = this.controllerSlot !== 'NONE';
+    this.activeRing.visible = controlled;
+    this.overheadArrow.visible = controlled;
+    this.nameSprite.visible = controlled || this.celebrationTimer > 0;
 
-    if (this.isControlled) {
+    if (controlled) {
+      const slotHex = this.controllerSlot === 'P2' ? 0x00e676 : 0x00e5ff;
+      (this.activeRing.material as THREE.MeshBasicMaterial).color.setHex(slotHex);
+      (this.overheadArrow.material as THREE.MeshBasicMaterial).color.setHex(slotHex);
       this.overheadArrow.position.y = 2.85 + Math.sin(performance.now() * 0.008) * 0.12;
       this.overheadArrow.rotation.y += 0.04;
       this.renderOverheadNameAndStamina();
@@ -667,36 +985,52 @@ export class Player {
 
   private renderOverheadNameAndStamina(): void {
     const roundedStam = Math.round(this.stamina / 4) * 4;
-    const key = `${this.starName}|${this.shirtNumber}|${roundedStam}|${this.yellowCards}|${this.skillTimer > 0}`;
+    const key = `${this.controllerSlot}|${this.starName}|${this.shirtNumber}|${roundedStam}|${this.yellowCards}|${this.skillTimer > 0}`;
     if (this.lastHudKey === key) return;
     this.lastHudKey = key;
 
     const ctx = this.nameCanvas.getContext('2d')!;
     ctx.clearRect(0, 0, 256, 72);
 
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+    const isP2 = this.controllerSlot === 'P2';
+    const accentHex = isP2 ? '#00e676' : '#00e5ff';
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
     ctx.beginPath();
-    ctx.roundRect(18, 6, 220, 56, 12);
+    ctx.roundRect(14, 6, 228, 56, 12);
     ctx.fill();
 
-    ctx.strokeStyle = this.skillTimer > 0 ? '#facc15' : '#00e5ff';
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = this.skillTimer > 0 ? '#facc15' : accentHex;
+    ctx.lineWidth = 2.8;
     ctx.stroke();
+
+    // Controller Tag Pill (1P or 2P) on the left of the overhead bar
+    if (this.controllerSlot === 'P1' || this.controllerSlot === 'P2') {
+      ctx.fillStyle = accentHex;
+      ctx.beginPath();
+      ctx.roundRect(22, 12, 36, 22, 6);
+      ctx.fill();
+
+      ctx.fillStyle = '#04121f';
+      ctx.font = '900 14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(this.controllerSlot === 'P2' ? '2P' : '1P', 40, 28);
+    }
 
     // Star Name & Number
     ctx.fillStyle = '#ffffff';
-    ctx.font = '900 20px sans-serif';
+    ctx.font = '900 18px sans-serif';
     ctx.textAlign = 'center';
     const label = `${this.yellowCards > 0 ? '🟨 ' : ''}${this.starName} #${this.shirtNumber}${this.skillTimer > 0 ? ' ✨' : ''}`;
-    ctx.fillText(label, 128, 30);
+    ctx.fillText(label, 146, 29);
 
     // Stamina Bar
     ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.fillRect(38, 42, 180, 10);
+    ctx.fillRect(36, 42, 184, 10);
 
     const stamPct = Math.max(0.05, this.stamina / 100);
     ctx.fillStyle = stamPct > 0.5 ? '#00e676' : stamPct > 0.25 ? '#facc15' : '#ff1744';
-    ctx.fillRect(38, 42, 180 * stamPct, 10);
+    ctx.fillRect(36, 42, 184 * stamPct, 10);
 
     this.nameTexture.needsUpdate = true;
   }

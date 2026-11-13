@@ -377,6 +377,8 @@ export class WorldCupBall {
   public lastTouchTeam: 'HOME' | 'AWAY' = 'HOME';
   public lastKickerId: string | null = null;
   public ownerId: string | null = null;
+  public isShot: boolean = false;
+  public isKnuckleShot: boolean = false;
 
   private trailPositions: THREE.Vector3[] = [];
   private material: THREE.MeshStandardMaterial;
@@ -1690,6 +1692,8 @@ export class WorldCupBall {
     this.velocity.set(0, 0, 0);
     this.spin.set(0, 0, 0);
     this.ownerId = null;
+    this.isShot = false;
+    this.isKnuckleShot = false;
     this.trailPositions = [];
     this.syncMesh();
   }
@@ -1699,6 +1703,8 @@ export class WorldCupBall {
     this.velocity.set(0, 0, 0);
     this.spin.set(0, 0, 0);
     this.ownerId = null;
+    this.isShot = false;
+    this.isKnuckleShot = false;
     this.trailPositions = [];
     this.syncMesh();
   }
@@ -1721,6 +1727,8 @@ export class WorldCupBall {
     // Spin Y creates lateral Magnus curve; top/back spin on X/Z
     this.spin.set(0, spinY * cfg.curveFactor, 0);
     this.ownerId = null;
+    this.isShot = false;
+    this.isKnuckleShot = false;
     this.lastKickerId = kickerId;
     this.lastTouchTeam = team;
   }
@@ -1739,15 +1747,29 @@ export class WorldCupBall {
         this.velocity.z += this.windForce.z * dt;
 
         // Magnus Effect (Spin Curve in air: F_m = spin x velocity)
-        if (Math.abs(this.spin.y) > 0.05) {
+        if (Math.abs(this.spin.y) > 0.08 && !this.isKnuckleShot) {
           const magnusAccelX = -this.spin.y * this.velocity.z * 0.085;
           const magnusAccelZ = this.spin.y * this.velocity.x * 0.085;
           this.velocity.x += magnusAccelX * dt;
           this.velocity.z += magnusAccelZ * dt;
-        } else if (this.velocity.length() > 16 && cfg.knuckleFactor > 1.2) {
-          // Knuckleball flutter for Jabulani / Fevernova on low-spin hard shots
-          const flutter = Math.sin(performance.now() * 0.018) * 3.5 * cfg.knuckleFactor;
-          this.velocity.x += flutter * dt;
+        } else if (
+          this.isKnuckleShot ||
+          (this.velocity.length() > 16 && Math.abs(this.spin.y) <= 0.08 && cfg.knuckleFactor > 1.0)
+        ) {
+          // Authentic Knuckleball (무회전 슛) S-swerve lateral wobble + sudden late dip
+          const horizLen = Math.hypot(this.velocity.x, this.velocity.z);
+          if (horizLen > 8) {
+            const perpX = -this.velocity.z / horizLen;
+            const perpZ = this.velocity.x / horizLen;
+            const tNow = performance.now() * 0.025;
+            const swerve = (Math.sin(tNow) + 0.45 * Math.cos(tNow * 1.9)) * 7.8 * cfg.knuckleFactor;
+            this.velocity.x += perpX * swerve * dt;
+            this.velocity.z += perpZ * swerve * dt;
+            // Sudden downward dip (뚝 떨어지는 낙차) once past apex
+            if (this.velocity.y < 3.5) {
+              this.velocity.y -= 5.4 * cfg.knuckleFactor * dt;
+            }
+          }
         }
       }
 
@@ -1768,9 +1790,14 @@ export class WorldCupBall {
         const groundDrag = Math.pow(0.28, dt);
         this.velocity.x *= groundDrag;
         this.velocity.z *= groundDrag;
+
+        if (this.velocity.length() < 9.5) {
+          this.isShot = false;
+          this.isKnuckleShot = false;
+        }
       } else {
-        // Air drag
-        const airDrag = Math.pow(0.82, dt);
+        // Air drag (slightly lower drag on knuckleball so power carries to the net)
+        const airDrag = Math.pow(this.isKnuckleShot ? 0.88 : 0.82, dt);
         this.velocity.x *= airDrag;
         this.velocity.z *= airDrag;
       }
@@ -1778,15 +1805,19 @@ export class WorldCupBall {
       // Spin decay
       this.spin.multiplyScalar(Math.pow(0.55, dt));
 
-      // Visual rolling rotation of the World Cup ball mesh
+      // Visual rolling rotation of the World Cup ball mesh (suppressed in mid-air during a zero-spin knuckleball!)
       const horizSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-      if (horizSpeed > 0.05) {
+      const isAirborneKnuckle = this.isKnuckleShot && this.position.y > this.radius + 0.08;
+      if (horizSpeed > 0.05 && !isAirborneKnuckle) {
         const rollAxis = new THREE.Vector3(this.velocity.z, 0, -this.velocity.x).normalize();
         this.mesh.rotateOnWorldAxis(rollAxis, (horizSpeed / this.radius) * dt);
       }
-      if (Math.abs(this.spin.y) > 0.1) {
+      if (Math.abs(this.spin.y) > 0.1 && !isAirborneKnuckle) {
         this.mesh.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), this.spin.y * dt * 2.5);
       }
+    } else {
+      this.isShot = false;
+      this.isKnuckleShot = false;
     }
 
     this.syncMesh();

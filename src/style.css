@@ -147,6 +147,19 @@ body {
   cursor: pointer;
 }
 
+.coop-pill {
+  border-color: rgba(0, 230, 118, 0.55);
+  color: #a7f3d0;
+  cursor: pointer;
+}
+
+.coop-pill.coop-pill-on {
+  background: rgba(6, 95, 70, 0.88);
+  border-color: #00e676;
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.35);
+}
+
 .ref-pill {
   border-color: rgba(212, 255, 0, 0.45);
   color: #ecfccb;
@@ -192,6 +205,19 @@ body {
   border-color: #00e676;
   background: rgba(5, 150, 105, 0.85);
   color: #ffffff;
+}
+
+.q-coop {
+  border-color: rgba(0, 230, 118, 0.75);
+  background: rgba(6, 95, 70, 0.68);
+  color: #a7f3d0;
+}
+
+.q-coop.coop-active {
+  border-color: #00e676;
+  background: linear-gradient(135deg, #059669, #0284c7);
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.45);
 }
 
 .q-ball {
@@ -542,6 +568,84 @@ body {
   color: rgba(226, 232, 240, 0.72);
 }
 
+.joy-hint.tag-p1 {
+  color: #38bdf8;
+  font-weight: 900;
+}
+
+.joy-hint.tag-p2 {
+  color: #00e676;
+  font-weight: 900;
+}
+
+/* 2P Co-op Dual Touch Deck Layout on Tablet */
+.p1-joy-zone {
+  order: 1;
+}
+
+.center-bottom-stack {
+  order: 2;
+}
+
+.p1-pad {
+  order: 3;
+}
+
+.p2-coop-deck {
+  order: 4;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.p2-joy-base {
+  border-color: rgba(0, 230, 118, 0.58);
+}
+
+.p2-joy-base.active {
+  border-color: #00e676;
+  box-shadow: 0 0 22px rgba(0, 230, 118, 0.45);
+}
+
+.p2-joy-stick {
+  background: radial-gradient(circle at 32% 32%, #4ade80, #059669);
+  border: 2px solid #dcfce7;
+}
+
+#bottom-hud.local-coop-active .p1-joy-zone {
+  order: 1;
+  transform: scale(0.84);
+  transform-origin: bottom left;
+  margin-right: -18px;
+}
+
+#bottom-hud.local-coop-active .p1-pad {
+  order: 2;
+  transform: scale(0.82);
+  transform-origin: bottom left;
+  margin-right: -28px;
+}
+
+#bottom-hud.local-coop-active .center-bottom-stack {
+  order: 3;
+}
+
+#bottom-hud.local-coop-active .p2-coop-deck {
+  order: 4;
+}
+
+#bottom-hud.local-coop-active .p2-joy-zone {
+  transform: scale(0.84);
+  transform-origin: bottom right;
+  margin-right: -24px;
+}
+
+#bottom-hud.local-coop-active .p2-pad {
+  transform: scale(0.82);
+  transform-origin: bottom right;
+}
+
 /* Center Stack: Commentary Ticker + Compact Radar */
 .center-bottom-stack {
   display: flex;
@@ -863,6 +967,114 @@ body {
   padding: 7px;
   font-size: 12px;
   font-weight: 700;
+  width: 100%;
+}
+
+/* Searchable Combobox Styling */
+.searchable-combobox-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input-wrap .search-icon {
+  position: absolute;
+  left: 9px;
+  font-size: 12px;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.team-search-input {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.95);
+  color: #f8fafc;
+  border: 1.5px solid rgba(56, 189, 248, 0.5);
+  border-radius: 8px;
+  padding: 6px 28px 6px 28px;
+  font-size: 11.5px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.team-search-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+}
+
+.clear-search-btn {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.clear-search-btn:hover {
+  color: #f8fafc;
+}
+
+.search-results-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 190px;
+  overflow-y: auto;
+  background: #0b1329;
+  border: 1.5px solid #38bdf8;
+  border-radius: 8px;
+  margin-top: 3px;
+  z-index: 120;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.85);
+}
+
+.search-result-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #e2e8f0;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.1s;
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.search-result-item:hover,
+.search-result-item.highlighted {
+  background: rgba(56, 189, 248, 0.22);
+  color: #38bdf8;
+}
+
+.search-result-item .team-stars {
+  font-size: 10px;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-left: 6px;
+}
+
+.search-no-match {
+  padding: 10px;
+  text-align: center;
+  font-size: 11px;
+  color: #94a3b8;
 }
 
 .vs-badge {
@@ -894,6 +1106,153 @@ body {
   background: rgba(2, 132, 199, 0.4);
   color: #ffffff;
   border-color: #38bdf8;
+}
+
+/* Co-op Lobby Info & Online Room Code Box */
+.coop-info-box,
+.coop-online-box {
+  margin-top: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(0, 230, 118, 0.4);
+  border-radius: 10px;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.coop-info-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: #e2e8f0;
+  line-height: 1.35;
+}
+
+.coop-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.badge-p1 {
+  background: #00e5ff;
+  color: #020617;
+}
+
+.badge-p2 {
+  background: #00e676;
+  color: #020617;
+}
+
+.coop-online-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.coop-col {
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.coop-col-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: #a7f3d0;
+}
+
+.coop-action-btn {
+  background: linear-gradient(135deg, #059669, #0284c7);
+  color: #ffffff;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.coop-host-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.coop-code-badge {
+  background: rgba(2, 6, 23, 0.9);
+  border: 1.5px solid #00e676;
+  color: #00e676;
+  font-family: monospace;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  padding: 3px 9px;
+  border-radius: 7px;
+}
+
+.coop-sub-btn {
+  background: rgba(51, 65, 85, 0.9);
+  color: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.coop-join-row {
+  display: flex;
+  gap: 5px;
+}
+
+.coop-code-input {
+  flex: 1;
+  min-width: 0;
+  background: #020617;
+  border: 1.5px solid rgba(56, 189, 248, 0.55);
+  border-radius: 7px;
+  color: #ffffff;
+  font-family: monospace;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-align: center;
+  text-transform: uppercase;
+  padding: 5px 6px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.coop-net-status {
+  font-size: 11px;
+  font-weight: 700;
+  color: #bae6fd;
+  background: rgba(2, 6, 23, 0.55);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.coop-net-status.status-connected {
+  color: #6ee7b7;
+  border: 1px solid rgba(0, 230, 118, 0.45);
+}
+
+.coop-net-status.status-error {
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.45);
 }
 
 /* World Cup Ball Selector Cards */

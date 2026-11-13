@@ -1,6 +1,8 @@
 import { Game } from './Game';
+import { TEAMS } from './entities/Player';
 import { WORLD_CUP_BALLS, WorldCupBall } from './entities/WorldCupBall';
-import { DifficultyLevel, GameMode, TacticalStance, WorldCupBallId } from './types';
+import { getRoomCodeFromUrl } from './systems/CoopNetwork';
+import { CoopPlayMode, DifficultyLevel, GameMode, TacticalStance, WorldCupBallId } from './types';
 
 const BALL_ORDER: WorldCupBallId[] = [
   'trionda_26',
@@ -19,8 +21,15 @@ window.addEventListener('DOMContentLoaded', () => {
   let selectedTeamSize: 5 | 7 | 11 = 7;
   let selectedGameMode: GameMode = 'EXHIBITION';
   let selectedDifficulty: DifficultyLevel = 'NORMAL';
+  let selectedCoopMode: CoopPlayMode = 'SOLO';
+
+  const localCoopGuide = document.getElementById('local-coop-guide');
+  const onlineCoopPanel = document.getElementById('online-coop-panel');
+  const coopNetStatus = document.getElementById('coop-net-status');
 
   const syncControlGroupsUI = () => {
+    selectedCoopMode = game.coopMode;
+
     // Sync Difficulty buttons in Lobby & Pause Modal
     document
       .querySelectorAll('#difficulty-group .seg-btn, #pause-difficulty-group .seg-btn')
@@ -28,6 +37,17 @@ window.addEventListener('DOMContentLoaded', () => {
         const d = (b as HTMLElement).dataset.diff as DifficultyLevel | undefined;
         b.classList.toggle('active', d === selectedDifficulty);
       });
+
+    // Sync Co-op buttons in Lobby & Pause Modal
+    document
+      .querySelectorAll('#coop-mode-group .seg-btn, #pause-coop-group .seg-btn')
+      .forEach((b) => {
+        const c = (b as HTMLElement).dataset.coop as CoopPlayMode | undefined;
+        b.classList.toggle('active', c === selectedCoopMode);
+      });
+
+    localCoopGuide?.classList.toggle('hidden', selectedCoopMode !== 'LOCAL_COOP');
+    onlineCoopPanel?.classList.toggle('hidden', selectedCoopMode !== 'ONLINE_COOP');
 
     // Sync Tactics buttons in Pause Modal
     document.querySelectorAll('#pause-tactics-group .seg-btn').forEach((b) => {
@@ -119,6 +139,194 @@ window.addEventListener('DOMContentLoaded', () => {
       });
     });
 
+  // 3-B. Same-Team 2-Player Co-op Mode Selector & Online Room Code Controls
+  document
+    .querySelectorAll('#coop-mode-group .seg-btn, #pause-coop-group .seg-btn')
+    .forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const coop = ((btn as HTMLElement).dataset.coop || 'SOLO') as CoopPlayMode;
+        selectedCoopMode = coop;
+        game.setCoopMode(coop, true);
+        if (game.isPaused) {
+          game.setPaused(true);
+        }
+        syncControlGroupsUI();
+      });
+    });
+
+  game.net.onStatusChange = (statusText, connected, isError) => {
+    if (coopNetStatus) {
+      coopNetStatus.textContent = statusText;
+      coopNetStatus.classList.toggle('status-connected', !!connected);
+      coopNetStatus.classList.toggle('status-error', !!isError);
+    }
+    syncControlGroupsUI();
+  };
+
+  const hostInfoBox = document.getElementById('coop-host-info');
+  const roomCodeDisplay = document.getElementById('coop-room-code-display');
+  const copyLinkBtn = document.getElementById('btn-copy-coop-link');
+  const codeInput = document.getElementById('input-coop-code') as HTMLInputElement | null;
+
+  document.getElementById('btn-host-coop')?.addEventListener('click', () => {
+    game.audio.unlock();
+    selectedCoopMode = 'ONLINE_COOP';
+    game.coopMode = 'ONLINE_COOP';
+    const code = game.net.hostRoom();
+    if (roomCodeDisplay) roomCodeDisplay.textContent = code;
+    hostInfoBox?.classList.remove('hidden');
+    syncControlGroupsUI();
+  });
+
+  copyLinkBtn?.addEventListener('click', async () => {
+    if (!game.net.roomCode) return;
+    const shareUrl = `${window.location.origin}${window.location.pathname}?room=${game.net.roomCode}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      copyLinkBtn.textContent = '✅ 링크 복사됨!';
+      window.setTimeout(() => {
+        copyLinkBtn.textContent = '🔗 초대 링크 복사';
+      }, 1800);
+    } catch {
+      if (codeInput) codeInput.value = game.net.roomCode;
+    }
+  });
+
+  const triggerJoinCoopRoom = () => {
+    game.audio.unlock();
+    if (!codeInput) return;
+    selectedCoopMode = 'ONLINE_COOP';
+    game.coopMode = 'ONLINE_COOP';
+    game.net.joinRoom(codeInput.value);
+    syncControlGroupsUI();
+  };
+
+  document.getElementById('btn-join-coop')?.addEventListener('click', triggerJoinCoopRoom);
+  codeInput?.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      triggerJoinCoopRoom();
+    }
+  });
+
+  // Auto-detect ?room=ABCD invite link in URL
+  const urlRoom = getRoomCodeFromUrl();
+  if (urlRoom) {
+    selectedCoopMode = 'ONLINE_COOP';
+    game.coopMode = 'ONLINE_COOP';
+    if (codeInput) codeInput.value = urlRoom;
+    syncControlGroupsUI();
+    game.net.joinRoom(urlRoom);
+  }
+
+  // 3-C. Searchable Combobox Wiring for Home & Away World Cup Teams
+  const setupSearchableTeamCombobox = (
+    selectId: string,
+    inputId: string,
+    resultsId: string,
+    clearBtnId: string,
+    defaultTeamId: string
+  ) => {
+    const select = document.getElementById(selectId) as HTMLSelectElement | null;
+    const input = document.getElementById(inputId) as HTMLInputElement | null;
+    const results = document.getElementById(resultsId) as HTMLElement | null;
+    const clearBtn = document.getElementById(clearBtnId) as HTMLElement | null;
+    if (!select || !input || !results) return;
+
+    const teamList = Object.values(TEAMS);
+
+    // Populate native select with all 17 World Cup teams
+    select.innerHTML = '';
+    teamList.forEach((team) => {
+      const opt = document.createElement('option');
+      opt.value = team.id;
+      const topRoster = team.roster.slice(0, 3).map((r) => `${r.name} #${r.num}`).join(' · ');
+      opt.textContent = `${team.flag} ${team.name} (${topRoster})`;
+      if (team.id === defaultTeamId) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    const renderResults = (query: string) => {
+      const q = query.trim().toLowerCase();
+      if (!q) {
+        results.classList.add('hidden');
+        results.innerHTML = '';
+        clearBtn?.classList.add('hidden');
+        return;
+      }
+      clearBtn?.classList.remove('hidden');
+
+      const matches = teamList.filter((team) => {
+        const matchName = team.name.toLowerCase().includes(q);
+        const matchEng = (team.shortName || '').toLowerCase().includes(q) || team.id.toLowerCase().includes(q);
+        const matchPlayer = team.roster.some((p) => p.name.toLowerCase().includes(q));
+        return matchName || matchEng || matchPlayer;
+      });
+
+      results.innerHTML = '';
+      if (matches.length === 0) {
+        const noItem = document.createElement('div');
+        noItem.className = 'search-no-match';
+        noItem.textContent = `"${query}" 검색 결과가 없습니다.`;
+        results.appendChild(noItem);
+      } else {
+        matches.forEach((team) => {
+          const item = document.createElement('div');
+          item.className = 'search-result-item';
+          const topStars = team.roster.slice(0, 2).map((r) => r.name).join(', ');
+          item.innerHTML = `<span>${team.flag} <b>${team.name}</b> (${team.id})</span><span class="team-stars">${topStars}</span>`;
+          item.addEventListener('click', () => {
+            select.value = team.id;
+            input.value = `${team.flag} ${team.name}`;
+            results.classList.add('hidden');
+            select.dispatchEvent(new Event('change'));
+          });
+          results.appendChild(item);
+        });
+      }
+      results.classList.remove('hidden');
+    };
+
+    input.addEventListener('input', () => {
+      renderResults(input.value);
+    });
+
+    input.addEventListener('focus', () => {
+      if (input.value.trim().length > 0) {
+        renderResults(input.value);
+      }
+    });
+
+    clearBtn?.addEventListener('click', () => {
+      input.value = '';
+      results.classList.add('hidden');
+      clearBtn.classList.add('hidden');
+    });
+
+    select.addEventListener('change', () => {
+      const cur = TEAMS[select.value];
+      if (cur) {
+        input.value = `${cur.flag} ${cur.name}`;
+      }
+    });
+
+    // Close dropdown on click outside
+    document.addEventListener('click', (e: MouseEvent) => {
+      if (!input.contains(e.target as Node) && !results.contains(e.target as Node)) {
+        results.classList.add('hidden');
+      }
+    });
+
+    // Set initial input label
+    const initialTeam = TEAMS[defaultTeamId];
+    if (initialTeam) {
+      input.value = `${initialTeam.flag} ${initialTeam.name}`;
+    }
+  };
+
+  setupSearchableTeamCombobox('select-home-team', 'search-home-team', 'home-team-results', 'clear-home-search', 'KOR');
+  setupSearchableTeamCombobox('select-away-team', 'search-away-team', 'away-team-results', 'clear-away-search', 'BRA');
+
   // 4. Lobby Modal Open / Close / Start Match & Pause Modal Controls
   const lobbyModal = document.getElementById('lobby-modal')!;
   const closeLobby = () => {
@@ -146,7 +354,8 @@ window.addEventListener('DOMContentLoaded', () => {
       ballId: selectedBallId,
       halfDurationSec: 180,
       gameMode: selectedGameMode,
-      difficulty: selectedDifficulty
+      difficulty: selectedDifficulty,
+      coopMode: selectedCoopMode
     });
     lobbyModal.classList.add('hidden');
     game.setPaused(false);
@@ -238,6 +447,15 @@ window.addEventListener('DOMContentLoaded', () => {
     selectedDifficulty = game.cycleDifficulty();
     syncControlGroupsUI();
   });
+
+  const handleToggleCoopQuick = () => {
+    game.audio.unlock();
+    selectedCoopMode = game.toggleLocalCoop();
+    syncControlGroupsUI();
+  };
+
+  document.getElementById('btn-quick-coop')?.addEventListener('click', handleToggleCoopQuick);
+  document.getElementById('hud-coop-status')?.addEventListener('click', handleToggleCoopQuick);
 
   document.getElementById('hud-mode-status')?.addEventListener('click', () => {
     game.cycleTacticalStance();

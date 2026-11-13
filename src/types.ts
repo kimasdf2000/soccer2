@@ -51,6 +51,10 @@ export type GameMode =
 
 export type DifficultyLevel = 'EASY' | 'NORMAL' | 'HARD' | 'LEGEND';
 
+export type ControllerSlot = 'NONE' | 'P1' | 'P2';
+
+export type CoopPlayMode = 'SOLO' | 'LOCAL_COOP' | 'ONLINE_COOP';
+
 export type TacticalStance = 'ATTACK' | 'BALANCED' | 'DEFEND';
 
 export type MatchState =
@@ -94,6 +98,7 @@ export interface MatchSettings {
   halfDurationSec: number;
   gameMode: GameMode;
   difficulty?: DifficultyLevel;
+  coopMode?: CoopPlayMode;
 }
 
 export interface ReplayActorSnapshot {

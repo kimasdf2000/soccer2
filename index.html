@@ -47,6 +47,9 @@
         <div class="pill diff-pill" id="hud-diff-status" title="터치하여 AI 난이도(쉬움/보통/어려움/레전드) 즉시 변경">
           🎚️ 난이도: ⚽보통
         </div>
+        <div class="pill coop-pill" id="hud-coop-status" title="터치하여 1인 / 같은 팀 2인 협동(1P+2P) 즉시 전환">
+          👤 플레이: 1인 (터치시 2인협동)
+        </div>
         <div class="pill ref-pill" id="hud-ref-status">
           👨‍⚖️ 주심 11.0m • 🚩 부심 감시 중
         </div>
@@ -59,6 +62,9 @@
       <div class="quick-toolbar">
         <button class="q-btn q-pause" id="btn-quick-pause" title="게임 일시정지 / 재개 (단축키: P 또는 ESC)">
           ⏸️ 일시정지
+        </button>
+        <button class="q-btn q-coop" id="btn-quick-coop" title="같은 팀(HOME) 2인 협동 플레이 ON/OFF 전환">
+          👥 2인협동
         </button>
         <button class="q-btn q-ball" id="btn-quick-ball" title="월드컵 공인구 6종 변경 (2026 트리온다 포함)">
           ⚽ 공인구
@@ -181,8 +187,8 @@
 
     <!-- Bottom Tablet Touch Controls + Commentary Ticker + 2D Radar Minimap -->
     <div id="bottom-hud">
-      <!-- Left: 360° Virtual Touch Joystick -->
-      <div id="joystick-zone" class="joystick-zone">
+      <!-- Left: 1P 360° Virtual Touch Joystick -->
+      <div id="joystick-zone" class="joystick-zone p1-joy-zone">
         <div id="joystick-base" class="joystick-base">
           <div class="joy-arrows">
             <span class="ja-up">▲</span>
@@ -192,7 +198,7 @@
           </div>
           <div id="joystick-stick" class="joystick-stick"></div>
         </div>
-        <div class="joy-hint">이동 / 조준 (WASD·터치)</div>
+        <div id="p1-joy-tag" class="joy-hint">이동 / 조준 (WASD·터치)</div>
       </div>
 
       <!-- Center: Live Korean Commentary Bar + Compact 2D Pitch Radar Minimap -->
@@ -205,8 +211,8 @@
         </div>
       </div>
 
-      <!-- Right: FIFA Mobile Action Pad (5 Buttons: Shoot/Tackle, Pass/Press, Through/Switch, Sprint, Skill/Tactics/Chip) -->
-      <div class="action-pad">
+      <!-- 1P FIFA Mobile Action Pad (5 Buttons: Shoot/Tackle, Pass/Press, Through/Switch, Sprint, Skill/Tactics/Chip) -->
+      <div id="p1-action-pad" class="action-pad p1-pad">
         <button id="btn-skill" class="action-btn btn-skill">
           <span class="btn-icon">✨</span>
           <span class="btn-title">개인기 턴</span>
@@ -232,6 +238,50 @@
           <span class="btn-title">질주 (SPRINT)</span>
           <span class="btn-sub">홀드 가속</span>
         </button>
+      </div>
+
+      <!-- 2P Co-op Touch Deck (Shown on right side in Local 2P Same-Team Co-op Mode) -->
+      <div id="p2-coop-deck" class="p2-coop-deck hidden">
+        <div id="p2-joystick-zone" class="joystick-zone p2-joy-zone">
+          <div id="p2-joystick-base" class="joystick-base p2-joy-base">
+            <div class="joy-arrows">
+              <span class="ja-up">▲</span>
+              <span class="ja-down">▼</span>
+              <span class="ja-left">◀</span>
+              <span class="ja-right">▶</span>
+            </div>
+            <div id="p2-joystick-stick" class="joystick-stick p2-joy-stick"></div>
+          </div>
+          <div class="joy-hint tag-p2">2P 그린 (방향키·우측터치)</div>
+        </div>
+
+        <div id="p2-action-pad" class="action-pad p2-pad">
+          <button id="p2-btn-skill" class="action-btn btn-skill">
+            <span class="btn-icon">✨</span>
+            <span class="btn-title">개인기 턴</span>
+            <span class="btn-sub">마르세유 360°</span>
+          </button>
+          <button id="p2-btn-through" class="action-btn btn-through">
+            <span class="btn-icon">⚡</span>
+            <span class="btn-title">스루 패스</span>
+            <span class="btn-sub">공간 침투</span>
+          </button>
+          <button id="p2-btn-shoot" class="action-btn btn-shoot">
+            <span class="btn-icon">⚽</span>
+            <span class="btn-title">슛 (SHOOT)</span>
+            <span class="btn-sub">길게 눌러 파워</span>
+          </button>
+          <button id="p2-btn-pass" class="action-btn btn-pass">
+            <span class="btn-icon">👟</span>
+            <span class="btn-title">패스 (PASS)</span>
+            <span class="btn-sub">파트너 연결</span>
+          </button>
+          <button id="p2-btn-sprint" class="action-btn btn-sprint">
+            <span class="btn-icon">🔥</span>
+            <span class="btn-title">질주 (SPRINT)</span>
+            <span class="btn-sub">홀드 가속</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -279,26 +329,44 @@
             <div class="team-select-row">
               <div class="team-box">
                 <label>내 팀 (HOME - 실제 스타 로스터 탑재)</label>
-                <select id="select-home-team">
-                  <option value="KOR" selected>🇰🇷 대한민국 (SON #7 · LEE #10 · KIM #4)</option>
-                  <option value="BRA">🇧🇷 브라질 (VINICIUS #7 · RODRYGO #10)</option>
-                  <option value="ARG">🇦🇷 아르헨티나 (MESSI #10 · ALVAREZ #9)</option>
-                  <option value="FRA">🇫🇷 프랑스 (MBAPPE #10 · GRIEZMANN #7)</option>
-                  <option value="ENG">🏴󠁧󠁢󠁥󠁮󠁧󠁿 잉글랜드 (KANE #9 · BELLINGHAM #10)</option>
-                  <option value="GER">🇩🇪 독일 (MUSIALA #10 · KROOS #8)</option>
-                </select>
+                <div class="searchable-combobox-wrap" id="home-team-combo">
+                  <div class="search-input-wrap">
+                    <span class="search-icon">🔍</span>
+                    <input
+                      type="text"
+                      id="search-home-team"
+                      class="team-search-input"
+                      placeholder="국가명·선수 검색 (예: 한국, 스페인, 손흥민)"
+                      autocomplete="off"
+                    />
+                    <button type="button" id="clear-home-search" class="clear-search-btn hidden">✕</button>
+                  </div>
+                  <select id="select-home-team" class="team-select-dropdown">
+                    <!-- Populated dynamically from 17 World Cup teams -->
+                  </select>
+                  <div id="home-team-results" class="search-results-dropdown hidden"></div>
+                </div>
               </div>
               <div class="vs-badge">VS</div>
               <div class="team-box">
                 <label>상대 팀 (AWAY)</label>
-                <select id="select-away-team">
-                  <option value="KOR">🇰🇷 대한민국 (KOREA)</option>
-                  <option value="BRA" selected>🇧🇷 브라질 (BRAZIL)</option>
-                  <option value="ARG">🇦🇷 아르헨티나 (ARGENTINA)</option>
-                  <option value="FRA">🇫🇷 프랑스 (FRANCE)</option>
-                  <option value="ENG">🏴󠁧󠁢󠁥󠁮󠁧󠁿 잉글랜드 (ENGLAND)</option>
-                  <option value="GER">🇩🇪 독일 (GERMANY)</option>
-                </select>
+                <div class="searchable-combobox-wrap" id="away-team-combo">
+                  <div class="search-input-wrap">
+                    <span class="search-icon">🔍</span>
+                    <input
+                      type="text"
+                      id="search-away-team"
+                      class="team-search-input"
+                      placeholder="상대국·선수 검색 (예: 브라질, 메시, 호날두)"
+                      autocomplete="off"
+                    />
+                    <button type="button" id="clear-away-search" class="clear-search-btn hidden">✕</button>
+                  </div>
+                  <select id="select-away-team" class="team-select-dropdown">
+                    <!-- Populated dynamically from 17 World Cup teams -->
+                  </select>
+                  <div id="away-team-results" class="search-results-dropdown hidden"></div>
+                </div>
               </div>
             </div>
 
@@ -311,13 +379,71 @@
               </div>
             </div>
 
-            <div class="format-row">
+            <div class="format-row" style="margin-bottom: 10px">
               <label>AI 난이도 선택 (인게임 및 일시정지 중에도 실시간 변경 가능)</label>
               <div class="segmented-group" id="difficulty-group">
                 <button type="button" class="seg-btn" data-diff="EASY">🌱 쉬움</button>
                 <button type="button" class="seg-btn active" data-diff="NORMAL">⚽ 보통 (추천)</button>
                 <button type="button" class="seg-btn" data-diff="HARD">🔥 어려움</button>
                 <button type="button" class="seg-btn" data-diff="LEGEND">👑 레전드</button>
+              </div>
+            </div>
+
+            <div class="format-row">
+              <label>👥 같은 팀(HOME) 2인 협동(Co-op) 플레이 설정 (1P 시안 + 2P 네온 그린)</label>
+              <div class="segmented-group" id="coop-mode-group">
+                <button type="button" class="seg-btn active" data-coop="SOLO">👤 1인 플레이</button>
+                <button type="button" class="seg-btn" data-coop="LOCAL_COOP">👥 로컬 2인 같은팀</button>
+                <button type="button" class="seg-btn" data-coop="ONLINE_COOP">🌐 온라인 2인 같은팀</button>
+              </div>
+
+              <!-- Local 2P Co-op Controls Info Box -->
+              <div id="local-coop-guide" class="coop-info-box hidden">
+                <div class="coop-info-row">
+                  <span class="coop-badge badge-p1">1P 시안</span>
+                  <span>태블릿 좌측 조이스틱+패드 • 키보드 <b>WASD</b> 이동 + <b>Space/J</b> 슛 · <b>K</b> 패스 · <b>L</b> 스루 · <b>Shift</b> 질주</span>
+                </div>
+                <div class="coop-info-row">
+                  <span class="coop-badge badge-p2">2P 그린</span>
+                  <span>태블릿 우측 2P 조이스틱+패드 • 키보드 <b>방향키(↑↓←→)</b> + <b>Enter/Num1(/)</b> 슛 · <b>Num2(.)</b> 패스 · <b>Num3(,)</b> 스루 · <b>우Shift</b> 질주 • 패드지원</span>
+                </div>
+              </div>
+
+              <!-- Online 2P Co-op Room Host / Join Panel -->
+              <div id="online-coop-panel" class="coop-online-box hidden">
+                <div class="coop-online-cols">
+                  <div class="coop-col">
+                    <div class="coop-col-title">1P 호스트 (방 만들기)</div>
+                    <button type="button" id="btn-host-coop" class="coop-action-btn">
+                      🏠 같은팀 협동 방 만들기
+                    </button>
+                    <div id="coop-host-info" class="coop-host-info hidden">
+                      <div class="coop-code-badge" id="coop-room-code-display">----</div>
+                      <button type="button" id="btn-copy-coop-link" class="coop-sub-btn">
+                        🔗 초대 링크 복사
+                      </button>
+                    </div>
+                  </div>
+                  <div class="coop-col">
+                    <div class="coop-col-title">2P 파트너 (방 코드로 합류)</div>
+                    <div class="coop-join-row">
+                      <input
+                        type="text"
+                        id="input-coop-code"
+                        class="coop-code-input"
+                        maxlength="4"
+                        placeholder="코드 4자리"
+                        autocomplete="off"
+                      />
+                      <button type="button" id="btn-join-coop" class="coop-action-btn join-btn">
+                        참가
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div id="coop-net-status" class="coop-net-status">
+                  친구의 태블릿/스마트폰/PC와 4자리 방 코드로 연결해 같은 HOME 팀(1P+2P)으로 AI와 대결합니다.
+                </div>
               </div>
             </div>
           </div>
@@ -349,6 +475,14 @@
         </div>
 
         <div class="pause-controls-stack">
+          <div class="pause-row">
+            <label>👥 플레이 인원 (같은 팀 1P + 2P 협동 즉시 전환)</label>
+            <div class="segmented-group" id="pause-coop-group">
+              <button type="button" class="seg-btn active" data-coop="SOLO">👤 1인 단독 플레이</button>
+              <button type="button" class="seg-btn" data-coop="LOCAL_COOP">👥 같은 팀 2인 협동 (1P+2P)</button>
+            </div>
+          </div>
+
           <div class="pause-row">
             <label>🎚️ AI 난이도 즉시 변경</label>
             <div class="segmented-group" id="pause-difficulty-group">

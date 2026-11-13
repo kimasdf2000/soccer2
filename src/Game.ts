@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {
   CameraMode,
   CardType,
+  ControllerSlot,
+  CoopPlayMode,
   DifficultyLevel,
   FoulDecision,
   GameMode,
@@ -11,7 +13,8 @@ import {
   TeamConfig
 } from './types';
 import { AudioSystem } from './systems/AudioSystem';
-import { TouchController } from './systems/TouchController';
+import { PlayerInputState, TouchController } from './systems/TouchController';
+import { CoopNetwork, CoopStateSnapshot } from './systems/CoopNetwork';
 import { CommentarySystem } from './systems/CommentarySystem';
 import { ReplaySystem } from './systems/ReplaySystem';
 import { WorldCupBall, WORLD_CUP_BALLS } from './entities/WorldCupBall';
@@ -102,6 +105,7 @@ export class Game {
 
   public audio: AudioSystem;
   public controls: TouchController;
+  public net: CoopNetwork;
   public commentary: CommentarySystem;
   public replay: ReplaySystem;
 
@@ -115,14 +119,24 @@ export class Game {
   public homePlayers: Player[] = [];
   public awayPlayers: Player[] = [];
   public controlledPlayer: Player | null = null;
+  public controlledPlayer2: Player | null = null;
 
   public homeTeam: TeamConfig = TEAMS.KOR;
   public awayTeam: TeamConfig = TEAMS.BRA;
   public teamSize: 5 | 7 | 11 = 7;
   public gameMode: GameMode = 'EXHIBITION';
   public difficulty: DifficultyLevel = 'NORMAL';
+  public coopMode: CoopPlayMode = 'SOLO';
   public tacticalStance: TacticalStance = 'BALANCED';
   public isPaused: boolean = false;
+  private netSnapTimer: number = 0;
+
+  public get isCoopActive(): boolean {
+    return (
+      this.coopMode === 'LOCAL_COOP' ||
+      (this.coopMode === 'ONLINE_COOP' && this.net.isConnected)
+    );
+  }
 
   public matchState: MatchState = 'KICKOFF';
   public cameraMode: CameraMode = 'BROADCAST';
@@ -189,8 +203,11 @@ export class Game {
     this.container = container;
     this.audio = new AudioSystem();
     this.controls = new TouchController();
+    this.net = new CoopNetwork();
     this.commentary = new CommentarySystem();
     this.replay = new ReplaySystem();
+
+    this.setupNetworkCallbacks();
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0b1528);
@@ -255,12 +272,199 @@ export class Game {
     this.scene.add(sunLight);
   }
 
+  private setupNetworkCallbacks(): void {
+    this.net.onGuestConnected = () => {
+      this.coopMode = 'ONLINE_COOP';
+      this.controls.isLocalCoop = false;
+      this.controls.isOnlineCoopHost = true;
+      this.syncCoopControllers();
+      this.updateCoopHUDLayout();
+      this.updateModeSpecificHUD();
+      this.sendNetworkInitPayload();
+      this.showBanner(
+        '🤝 온라인 2인 협동 연결 완료! (1P + 2P 같은 팀)',
+        `${this.homeTeam.flag} ${this.homeTeam.name} 팀에서 [1P 시안]과 [2P 그린]으로 함께 플레이합니다!`,
+        'banner-clean',
+        2.8
+      );
+      this.commentary.announce(
+        `2P 파트너가 온라인으로 합류했습니다! ${this.homeTeam.name} 대표팀에서 환상의 호흡을 보여주세요!`,
+        'high'
+      );
+    };
+
+    this.net.onGuestInput = (inp) => {
+      this.controls.applyRemoteGuestInput(inp);
+    };
+
+    this.net.onGuestReceiveInit = (payload) => {
+      this.coopMode = 'ONLINE_COOP';
+      this.controls.isLocalCoop = false;
+      this.controls.isOnlineCoopHost = false;
+      this.startNewMatch({
+        homeTeamId: payload.homeTeamId,
+        awayTeamId: payload.awayTeamId,
+        teamSize: payload.teamSize,
+        ballId: payload.ballId,
+        halfDurationSec: payload.halfDurationSec,
+        gameMode: payload.gameMode,
+        difficulty: payload.difficulty,
+        coopMode: 'ONLINE_COOP'
+      });
+      this.updateCoopHUDLayout();
+      document.getElementById('lobby-modal')?.classList.add('hidden');
+      this.showBanner(
+        '🌐 2P 파트너 합류 완료! (같은 HOME 팀)',
+        `당신은 [2P 네온 그린] 마커 선수를 조작합니다! 1P와 패스를 주고받으며 득점하세요!`,
+        'banner-clean',
+        3.0
+      );
+    };
+
+    this.net.onGuestReceiveSnap = (snap) => {
+      this.applyNetworkSnapshot(snap);
+    };
+
+    this.net.onGuestReceiveBanner = (title, sub, cls, dur) => {
+      this.showBanner(title, sub, cls, dur, true);
+    };
+
+    this.net.onDisconnected = () => {
+      this.controls.isOnlineCoopHost = false;
+      this.controls.resetP2State();
+      if (this.coopMode === 'ONLINE_COOP') {
+        this.coopMode = 'SOLO';
+      }
+      this.syncCoopControllers();
+      this.updateCoopHUDLayout();
+      this.updateModeSpecificHUD();
+    };
+  }
+
+  public sendNetworkInitPayload(): void {
+    if (this.net.role === 'HOST' && this.net.isConnected) {
+      this.net.send({
+        t: 'init',
+        payload: {
+          homeTeamId: this.homeTeam.id,
+          awayTeamId: this.awayTeam.id,
+          teamSize: this.teamSize,
+          ballId: this.ball.currentBallId,
+          halfDurationSec: this.halfDurationSec,
+          gameMode: this.gameMode,
+          difficulty: this.difficulty
+        }
+      });
+    }
+  }
+
+  public setCoopMode(mode: CoopPlayMode, showNotice: boolean = true): void {
+    if (mode !== 'ONLINE_COOP' && this.net.role !== 'NONE') {
+      this.net.disconnect();
+    }
+    this.coopMode = mode;
+    this.controls.isLocalCoop = mode === 'LOCAL_COOP';
+    this.controls.isOnlineCoopHost = mode === 'ONLINE_COOP' && this.net.role === 'HOST';
+    this.controls.resetP2State();
+    this.syncCoopControllers();
+    this.updateCoopHUDLayout();
+    this.updateModeSpecificHUD();
+
+    if (showNotice) {
+      if (mode === 'LOCAL_COOP') {
+        const p1Name = this.controlledPlayer?.starName || '1P';
+        const p2Name = this.controlledPlayer2?.starName || '2P';
+        this.showBanner(
+          `👥 2인 협동 모드 ON! (같은 ${this.homeTeam.shortName} 팀)`,
+          `[1P 시안: ${p1Name}] + [2P 그린: ${p2Name}] • 듀얼 터치패드 & 키보드(WASD / 방향키) 동시 지원!`,
+          'banner-clean',
+          2.6
+        );
+        this.commentary.announce(
+          `같은 팀 2인 협동 모드가 활성화되었습니다! 1P와 2P가 함께 ${this.homeTeam.name} 공격을 이끕니다!`,
+          'normal'
+        );
+      } else if (mode === 'SOLO') {
+        this.showBanner(
+          '👤 1인 플레이 모드 전환',
+          '단독 조작 모드로 전환되었습니다.',
+          'banner-setpiece',
+          1.6
+        );
+      }
+    }
+  }
+
+  public toggleLocalCoop(): CoopPlayMode {
+    const next: CoopPlayMode = this.coopMode === 'LOCAL_COOP' ? 'SOLO' : 'LOCAL_COOP';
+    this.setCoopMode(next, true);
+    return this.coopMode;
+  }
+
+  private updateCoopHUDLayout(): void {
+    const bottomHud = document.getElementById('bottom-hud');
+    const p2Deck = document.getElementById('p2-coop-deck');
+    const p1Tag = document.getElementById('p1-joy-tag');
+    const coopQuickBtn = document.getElementById('btn-quick-coop');
+    const coopPill = document.getElementById('hud-coop-status');
+
+    const isLocal2P = this.coopMode === 'LOCAL_COOP';
+    const isOnline2P = this.coopMode === 'ONLINE_COOP' && this.net.isConnected;
+
+    bottomHud?.classList.toggle('local-coop-active', isLocal2P);
+    p2Deck?.classList.toggle('hidden', !isLocal2P);
+    if (p1Tag) {
+      if (isOnline2P && this.net.role === 'GUEST') {
+        p1Tag.textContent = '2P 그린 조작 (WASD·터치)';
+        p1Tag.className = 'joy-hint tag-p2';
+      } else if (isLocal2P || isOnline2P) {
+        p1Tag.textContent = isLocal2P ? '1P 시안 (WASD·좌측터치)' : '1P 시안 조작 (호스트)';
+        p1Tag.className = 'joy-hint tag-p1';
+      } else {
+        p1Tag.textContent = '이동 / 조준 (WASD·터치)';
+        p1Tag.className = 'joy-hint';
+      }
+    }
+
+    if (coopQuickBtn) {
+      if (isOnline2P) {
+        coopQuickBtn.textContent = `🌐 2인온라인(${this.net.roomCode})`;
+        coopQuickBtn.classList.add('coop-active');
+      } else if (isLocal2P) {
+        coopQuickBtn.textContent = '👥 2인협동 ON';
+        coopQuickBtn.classList.add('coop-active');
+      } else {
+        coopQuickBtn.textContent = '👥 2인협동';
+        coopQuickBtn.classList.remove('coop-active');
+      }
+    }
+
+    if (coopPill) {
+      if (isOnline2P) {
+        const mySlot = this.net.role === 'GUEST' ? '2P 그린' : '1P 시안';
+        coopPill.textContent = `🌐 같은팀 2P (${mySlot} • 방:${this.net.roomCode})`;
+        coopPill.classList.add('coop-pill-on');
+      } else if (isLocal2P) {
+        coopPill.textContent = `👥 같은팀 2인 협동 (1P시안 + 2P그린)`;
+        coopPill.classList.add('coop-pill-on');
+      } else {
+        coopPill.textContent = `👤 플레이: 1인 (터치시 2인협동)`;
+        coopPill.classList.remove('coop-pill-on');
+      }
+    }
+  }
+
   public startNewMatch(settings: MatchSettings): void {
     this.setPaused(false);
     this.homeTeam = TEAMS[settings.homeTeamId] || TEAMS.KOR;
     this.gameMode = settings.gameMode || 'EXHIBITION';
     if (settings.difficulty) {
       this.difficulty = settings.difficulty;
+    }
+    if (settings.coopMode) {
+      this.coopMode = settings.coopMode;
+      this.controls.isLocalCoop = this.coopMode === 'LOCAL_COOP';
+      this.controls.isOnlineCoopHost = this.coopMode === 'ONLINE_COOP' && this.net.role === 'HOST';
     }
     this.teamSize = settings.teamSize;
     this.halfDurationSec = settings.halfDurationSec;
@@ -318,8 +522,10 @@ export class Game {
       }
     }
 
+    this.updateCoopHUDLayout();
     this.updateScoreboardHUD();
     this.updateModeSpecificHUD();
+    this.sendNetworkInitPayload();
   }
 
   private setupNextFreeKickChallengeStage(): void {
@@ -421,32 +627,101 @@ export class Game {
     });
 
     const initialCtrl = this.homePlayers[this.homePlayers.length - 1];
-    this.setControlledPlayer(initialCtrl);
+    this.controlledPlayer = initialCtrl;
+    this.controlledPlayer2 =
+      this.homePlayers.length >= 3 ? this.homePlayers[this.homePlayers.length - 2] : null;
+    this.syncCoopControllers();
+  }
+
+  public syncCoopControllers(): void {
+    const validOutfield = this.homePlayers.filter((p) => !p.isSentOff && p.role !== 'GK');
+
+    // Ensure 1P is valid
+    if (!this.controlledPlayer || this.controlledPlayer.isSentOff) {
+      this.controlledPlayer = validOutfield[validOutfield.length - 1] || this.homePlayers[0] || null;
+    }
+
+    if (this.isCoopActive) {
+      if (
+        !this.controlledPlayer2 ||
+        this.controlledPlayer2.isSentOff ||
+        this.controlledPlayer2.role === 'GK' ||
+        this.controlledPlayer2 === this.controlledPlayer
+      ) {
+        const candidates = validOutfield.filter((p) => p !== this.controlledPlayer);
+        // Pick the closest forward/midfield partner to the ball or second-last player
+        if (candidates.length > 0) {
+          candidates.sort(
+            (a, b) => a.position.distanceTo(this.ball.position) - b.position.distanceTo(this.ball.position)
+          );
+          this.controlledPlayer2 = candidates[0];
+        } else {
+          this.controlledPlayer2 = null;
+        }
+      }
+    } else {
+      this.controlledPlayer2 = null;
+    }
+
+    for (const p of this.homePlayers) {
+      if (p === this.controlledPlayer) {
+        p.controllerSlot = 'P1';
+      } else if (this.isCoopActive && p === this.controlledPlayer2) {
+        p.controllerSlot = 'P2';
+      } else {
+        p.controllerSlot = 'NONE';
+      }
+    }
   }
 
   public setControlledPlayer(player: Player): void {
     if (player.isSentOff) return;
-    for (const p of this.homePlayers) {
-      p.isControlled = p === player;
+    if (this.isCoopActive && player === this.controlledPlayer2) {
+      // If 2P is already controlling this player and 1P is still valid, keep 2P on this player!
+      if (this.controlledPlayer && !this.controlledPlayer.isSentOff && this.controlledPlayer.role !== 'GK') {
+        this.syncCoopControllers();
+        return;
+      }
+      this.controlledPlayer2 = null;
     }
     this.controlledPlayer = player;
+    this.syncCoopControllers();
   }
 
-  private switchToNearestHomePlayer(): void {
+  public setControlledPlayer2(player: Player | null): void {
+    if (!player || player.isSentOff || player.role === 'GK') return;
+    if (player === this.controlledPlayer) {
+      return;
+    }
+    this.controlledPlayer2 = player;
+    this.syncCoopControllers();
+  }
+
+  private switchToNearestHomePlayer(slot: 'P1' | 'P2' = 'P1'): void {
     const candidates = this.homePlayers.filter((p) => !p.isSentOff && p.role !== 'GK');
     if (candidates.length === 0) return;
 
-    let best: Player = candidates[0];
+    const currentSelf = slot === 'P2' ? this.controlledPlayer2 : this.controlledPlayer;
+    const currentPartner = slot === 'P2' ? this.controlledPlayer : this.controlledPlayer2;
+
+    let best: Player | null = null;
     let bestScore = Infinity;
     for (const p of candidates) {
-      if (p === this.controlledPlayer && candidates.length > 1) continue;
+      if (p === currentSelf && candidates.length > 1) continue;
+      if (this.isCoopActive && p === currentPartner && candidates.length > 2) continue;
       const d = p.position.distanceTo(this.ball.position);
       if (d < bestScore) {
         bestScore = d;
         best = p;
       }
     }
-    this.setControlledPlayer(best);
+    if (!best) best = candidates[0];
+
+    if (slot === 'P2') {
+      this.setControlledPlayer2(best);
+    } else {
+      this.setControlledPlayer(best);
+    }
   }
 
   public cycleTacticalStance(): TacticalStance {
@@ -1036,12 +1311,27 @@ export class Game {
     const powerBarWrap = document.getElementById('shot-power-wrap');
     const powerBarFill = document.getElementById('shot-power-fill');
     if (powerBarWrap && powerBarFill) {
-      if (this.controls.isChargingShot) {
+      const p1Charging = this.controls.isChargingShot;
+      const p2Charging = this.isCoopActive && this.controls.p2.isChargingShot;
+      if (p1Charging || p2Charging) {
+        const activePower = p1Charging ? this.controls.shotPower : this.controls.p2.shotPower;
         powerBarWrap.classList.remove('hidden');
-        powerBarFill.style.width = `${Math.round(this.controls.shotPower * 100)}%`;
+        powerBarFill.style.width = `${Math.round(activePower * 100)}%`;
       } else {
         powerBarWrap.classList.add('hidden');
       }
+    }
+
+    // Online 2P Co-op Guest Mode: send local controller input to Host and render replicated state
+    if (this.coopMode === 'ONLINE_COOP' && this.net.role === 'GUEST' && this.net.isConnected) {
+      this.net.send({
+        t: 'input',
+        input: this.controls.consumeLocalAsGuestPacket()
+      });
+      this.updateGuestVisuals(dt);
+      this.updateCamera(dt);
+      this.updateRefereeStatusHUD();
+      return;
     }
 
     // Update Assistant Referees (Linesmen) along North & South touchlines
@@ -1133,6 +1423,10 @@ export class Game {
     }
 
     this.updateRefereeStatusHUD();
+
+    if (this.coopMode === 'ONLINE_COOP' && this.net.role === 'HOST' && this.net.isConnected) {
+      this.broadcastNetworkSnapshot(dt);
+    }
   }
 
   private handlePostGoalTransition(): void {
@@ -1325,22 +1619,52 @@ export class Game {
 
     if (this.controls.triggerSwitchPlayer) {
       this.controls.triggerSwitchPlayer = false;
-      this.switchToNearestHomePlayer();
+      this.switchToNearestHomePlayer('P1');
+    }
+    if (this.isCoopActive && this.controls.p2.triggerSwitchPlayer) {
+      this.controls.p2.triggerSwitchPlayer = false;
+      this.switchToNearestHomePlayer('P2');
     }
 
     const currentOwner = this.players.find((p) => p.id === this.ball.ownerId);
-    if (currentOwner && currentOwner.team === 'HOME' && currentOwner !== this.controlledPlayer) {
-      this.setControlledPlayer(currentOwner);
+    if (
+      currentOwner &&
+      currentOwner.team === 'HOME' &&
+      currentOwner !== this.controlledPlayer &&
+      currentOwner !== this.controlledPlayer2
+    ) {
+      if (this.isCoopActive && this.controlledPlayer && this.controlledPlayer2) {
+        const d1 = this.controlledPlayer.position.distanceTo(currentOwner.position);
+        const d2 = this.controlledPlayer2.position.distanceTo(currentOwner.position);
+        if (d2 < d1 && currentOwner.role !== 'GK') {
+          this.setControlledPlayer2(currentOwner);
+        } else {
+          this.setControlledPlayer(currentOwner);
+        }
+      } else {
+        this.setControlledPlayer(currentOwner);
+      }
     }
 
-    this.updateControlledPlayerInput(dt);
+    this.syncCoopControllers();
+
+    if (this.controlledPlayer) {
+      this.updateControlledSlotInput('P1', this.controlledPlayer, this.controls, dt);
+    }
+    if (this.isCoopActive && this.controlledPlayer2) {
+      this.updateControlledSlotInput('P2', this.controlledPlayer2, this.controls.p2, dt);
+    }
 
     for (const p of this.players) {
       if (p.isSentOff) continue;
-      if (p !== this.controlledPlayer) {
+      const isP1 = p === this.controlledPlayer;
+      const isP2 = this.isCoopActive && p === this.controlledPlayer2;
+      if (!isP1 && !isP2) {
         this.updatePlayerAI(p, dt);
       }
-      p.update(dt, p === this.controlledPlayer && this.controls.isSprinting);
+      const sprinting =
+        (isP1 && this.controls.isSprinting) || (isP2 && this.controls.p2.isSprinting);
+      p.update(dt, sprinting);
     }
 
     this.checkSlideTacklesAndFouls();
@@ -1354,13 +1678,17 @@ export class Game {
     this.referee.updateFollowPlay(dt, this.ball.position, this.ball.velocity, this.players);
   }
 
-  private updateControlledPlayerInput(dt: number): void {
-    const p = this.controlledPlayer;
+  private updateControlledSlotInput(
+    slot: 'P1' | 'P2',
+    p: Player,
+    input: PlayerInputState,
+    dt: number
+  ): void {
     if (!p || p.isSentOff || p.fallenTimer > 0) return;
 
-    const move = this.controls.moveVec;
-    const speedMult = p.getEffectiveSpeedMultiplier(this.controls.isSprinting);
-    const baseSpeed = (this.controls.isSprinting ? 10.2 : 7.6) * speedMult;
+    const move = input.moveVec;
+    const speedMult = p.getEffectiveSpeedMultiplier(input.isSprinting);
+    const baseSpeed = (input.isSprinting ? 14.8 : 8.8) * speedMult;
 
     let moveWorldX = move.x;
     let moveWorldZ = move.y;
@@ -1370,15 +1698,14 @@ export class Game {
     }
 
     // Handle Skill Move (Marseille 360° Spin) or Tactical Stance Switch (#btn-skill / KeyE)
-    if (this.controls.triggerSkillOrTactics) {
-      this.controls.triggerSkillOrTactics = false;
+    if (input.triggerSkillOrTactics) {
+      input.triggerSkillOrTactics = false;
       const owner = this.players.find((pl) => pl.id === this.ball.ownerId);
       if (owner && owner.team === 'AWAY') {
         this.cycleTacticalStance();
       } else if (p.triggerSkillMove()) {
         this.audio.playKick(0.35);
         this.commentary.announce(`${p.starName} 화려한 마르세유 턴 개인기로 수비를 벗겨냅니다!`, 'low');
-        // Stumble nearby Away defenders caught by the skill move!
         for (const opp of this.awayPlayers) {
           if (!opp.isSentOff && opp.position.distanceTo(p.position) < 2.5) {
             opp.triggerFallDown(0.95);
@@ -1389,23 +1716,24 @@ export class Game {
 
     if (p.slideTimer <= 0) {
       if (move.lengthSq() > 0.02) {
-        p.velocity.x = THREE.MathUtils.lerp(p.velocity.x, moveWorldX * baseSpeed, dt * 10);
-        p.velocity.z = THREE.MathUtils.lerp(p.velocity.z, moveWorldZ * baseSpeed, dt * 10);
-      } else if (this.controls.isPressingDefense && this.ball.ownerId !== p.id) {
+        const lerpFactor = input.isSprinting ? dt * 18 : dt * 12;
+        p.velocity.x = THREE.MathUtils.lerp(p.velocity.x, moveWorldX * baseSpeed, lerpFactor);
+        p.velocity.z = THREE.MathUtils.lerp(p.velocity.z, moveWorldZ * baseSpeed, lerpFactor);
+      } else if (input.isPressingDefense && this.ball.ownerId !== p.id) {
         const toBall = this.ball.position.clone().sub(p.position);
         toBall.y = 0;
         if (toBall.length() > 0.8) {
           toBall.normalize();
-          p.velocity.x = toBall.x * 8.4;
-          p.velocity.z = toBall.z * 8.4;
+          p.velocity.x = toBall.x * 9.6;
+          p.velocity.z = toBall.z * 9.6;
         }
       } else {
-        p.velocity.multiplyScalar(0.75);
+        p.velocity.multiplyScalar(0.72);
       }
     }
 
-    if (this.controls.triggerSlideTackle) {
-      this.controls.triggerSlideTackle = false;
+    if (input.triggerSlideTackle) {
+      input.triggerSlideTackle = false;
       const tackleDir =
         move.lengthSq() > 0.05
           ? new THREE.Vector3(moveWorldX, 0, moveWorldZ).normalize()
@@ -1418,9 +1746,9 @@ export class Game {
 
     if (canKickBall) {
       // 1) Shoot
-      if (this.controls.triggerShootWithPower !== null) {
-        const power = this.controls.triggerShootWithPower;
-        this.controls.triggerShootWithPower = null;
+      if (input.triggerShootWithPower !== null) {
+        const power = input.triggerShootWithPower;
+        input.triggerShootWithPower = null;
 
         const goalTarget = new THREE.Vector3(
           Stadium.HALF_LENGTH,
@@ -1428,20 +1756,31 @@ export class Game {
           THREE.MathUtils.clamp(moveWorldZ * 4.8, -Stadium.GOAL_HALF_WIDTH + 0.6, Stadium.GOAL_HALF_WIDTH - 0.6)
         );
         const shootDir = goalTarget.sub(p.position).normalize();
-        const speed = (19.5 + power * 14.5) * p.shootStat;
+        const speed = (20.5 + power * 15.5) * p.shootStat;
         const loft = 2.8 + power * 6.8;
-        const curveSpin = -moveWorldZ * 1.15 * p.curveStat;
+
+        // If shooting with straight aim (near zero lateral steer) and solid power, trigger a Knuckleball Power Shot!
+        const isKnuckleAim = Math.abs(moveWorldZ) < 0.22 && power >= 0.62;
+        const curveSpin = isKnuckleAim ? 0 : -moveWorldZ * 1.15 * p.curveStat;
 
         p.kickAnimTimer = 0.28;
         this.pendingOffsideReceiverId = null;
         this.ball.kick(shootDir, speed, loft, curveSpin, p.id, 'HOME');
+        this.ball.isShot = true;
+        this.ball.isKnuckleShot = isKnuckleAim;
+
         this.audio.playKick(power);
-        this.commentary.announce(`${p.starName} 강력한 슈팅!!`, 'normal');
+        if (isKnuckleAim) {
+          this.commentary.announce(`${p.starName} 흔들리는 무회전 강슛(KNUCKLEBALL) 작렬!!`, 'high');
+          this.showBanner('🌀 KNUCKLEBALL SHOT!', `${p.starName} 회전 없이 요동치는 무회전 슛!`, 'banner-setpiece', 1.8);
+        } else {
+          this.commentary.announce(`${p.starName} 강력한 슈팅!!`, 'normal');
+        }
       }
 
-      // 2) Short Ground Pass
-      if (this.controls.triggerPass) {
-        this.controls.triggerPass = false;
+      // 2) Short Ground Pass (Prioritizes Co-op Partner if aiming toward them!)
+      if (input.triggerPass) {
+        input.triggerPass = false;
         const passTarget = this.findBestTeammateForPass(p, new THREE.Vector3(moveWorldX, 0, moveWorldZ), false);
         const passDir = passTarget
           ? passTarget.position.clone().sub(p.position).normalize()
@@ -1451,33 +1790,58 @@ export class Game {
           this.checkPassForOffside(p, passTarget);
         }
         p.kickAnimTimer = 0.22;
-        this.ball.kick(passDir, 18.5, 1.2, 0, p.id, 'HOME');
+        this.ball.kick(passDir, 18.8, 1.15, 0, p.id, 'HOME');
+        this.ball.isShot = false;
+        this.ball.isKnuckleShot = false;
         this.audio.playKick(0.5);
+
         if (passTarget) {
-          this.setControlledPlayer(passTarget);
+          const isPartnerAlreadyControlling =
+            this.isCoopActive &&
+            ((slot === 'P1' && passTarget === this.controlledPlayer2) ||
+              (slot === 'P2' && passTarget === this.controlledPlayer));
+          if (!isPartnerAlreadyControlling) {
+            if (slot === 'P2') this.setControlledPlayer2(passTarget);
+            else this.setControlledPlayer(passTarget);
+          } else {
+            this.commentary.announce(
+              `${p.starName} 선수가 파트너 ${passTarget.starName} 선수에게 패스를 연결합니다!`,
+              'low'
+            );
+          }
         }
       }
 
       // 3) Through Pass / Lofted Ball
-      if (this.controls.triggerThrough) {
-        this.controls.triggerThrough = false;
+      if (input.triggerThrough) {
+        input.triggerThrough = false;
         const targetMate = this.findBestTeammateForPass(p, new THREE.Vector3(moveWorldX, 0, moveWorldZ), true);
         let dir = new THREE.Vector3(1, 0, moveWorldZ * 0.5).normalize();
         if (targetMate) {
           this.checkPassForOffside(p, targetMate);
           const leadSpot = targetMate.position.clone().add(new THREE.Vector3(7.5, 0, 0));
           dir = leadSpot.sub(p.position).normalize();
-          this.setControlledPlayer(targetMate);
+
+          const isPartnerAlreadyControlling =
+            this.isCoopActive &&
+            ((slot === 'P1' && targetMate === this.controlledPlayer2) ||
+              (slot === 'P2' && targetMate === this.controlledPlayer));
+          if (!isPartnerAlreadyControlling) {
+            if (slot === 'P2') this.setControlledPlayer2(targetMate);
+            else this.setControlledPlayer(targetMate);
+          }
         }
         p.kickAnimTimer = 0.25;
         this.ball.kick(dir, 22.0, 4.2, 0.35 * p.curveStat, p.id, 'HOME');
+        this.ball.isShot = false;
+        this.ball.isKnuckleShot = false;
         this.audio.playKick(0.75);
         this.commentary.announce(`${p.starName} 날카로운 스루패스를 찔러줍니다!`, 'low');
       }
     } else {
-      this.controls.triggerShootWithPower = null;
-      this.controls.triggerPass = false;
-      this.controls.triggerThrough = false;
+      input.triggerShootWithPower = null;
+      input.triggerPass = false;
+      input.triggerThrough = false;
     }
   }
 
@@ -1513,11 +1877,16 @@ export class Game {
     for (const m of mates) {
       const toMate = m.position.clone().sub(passer.position);
       const dist = toMate.length();
-      if (dist < 2 || dist > 42) continue;
+      if (dist < 2 || dist > 44) continue;
       toMate.normalize();
       const align = toMate.dot(desiredDir);
       const forwardBonus = isThrough ? (passer.team === 'HOME' ? m.position.x : -m.position.x) * 0.03 : 0;
-      const score = align * 2.2 - dist * 0.03 + forwardBonus;
+      const isHumanPartner =
+        this.isCoopActive &&
+        passer.team === 'HOME' &&
+        (m === this.controlledPlayer || m === this.controlledPlayer2);
+      const partnerBonus = isHumanPartner && align > 0.12 ? 0.78 : 0;
+      const score = align * 2.2 - dist * 0.03 + forwardBonus + partnerBonus;
       if (score > bestScore) {
         bestScore = score;
         best = m;
@@ -1783,7 +2152,10 @@ export class Game {
         offender.isSentOff = true;
         offender.group.visible = false;
         if (this.controlledPlayer === offender) {
-          this.switchToNearestHomePlayer();
+          this.switchToNearestHomePlayer('P1');
+        }
+        if (this.controlledPlayer2 === offender) {
+          this.switchToNearestHomePlayer('P2');
         }
       }
 
@@ -1798,10 +2170,26 @@ export class Game {
     }
   }
 
+  private updateSetPiecePartnerMovement(dt: number): void {
+    if (!this.isCoopActive || !this.controlledPlayer2 || this.controlledPlayer2 === this.setPieceKicker) {
+      return;
+    }
+    const p2 = this.controlledPlayer2;
+    const mv = this.controls.p2.moveVec;
+    if (mv.lengthSq() > 0.02) {
+      const spd = 7.8 * p2.speedStat;
+      p2.velocity.set(mv.x * spd, 0, mv.y * spd);
+    } else {
+      p2.velocity.multiplyScalar(0.75);
+    }
+    p2.update(dt, this.controls.p2.isSprinting);
+  }
+
   private updateThrowInSetup(dt: number): void {
     const isUser = this.setPieceTeam === 'HOME';
     if (isUser) {
       this.setPieceAimYaw -= this.controls.moveVec.x * dt * 1.2;
+      this.updateSetPiecePartnerMovement(dt);
     } else {
       this.aiSetPieceTimer -= dt;
     }
@@ -1846,6 +2234,7 @@ export class Game {
           1.0
         );
       }
+      this.updateSetPiecePartnerMovement(dt);
     } else {
       this.aiSetPieceTimer -= dt;
     }
@@ -1873,19 +2262,30 @@ export class Game {
       (isUserKicker &&
         (this.controls.triggerShootWithPower !== null ||
           this.controls.triggerThrough ||
-          this.controls.triggerSkillOrTactics)) ||
+          this.controls.triggerSkillOrTactics ||
+          this.controls.p2.triggerShootWithPower !== null ||
+          this.controls.p2.triggerThrough ||
+          this.controls.p2.triggerSkillOrTactics)) ||
       (!isUserKicker && this.aiSetPieceTimer <= 0);
 
     if (shouldFireShot) {
-      const power = this.controls.triggerShootWithPower ?? 0.78;
-      const isKnuckle = this.controls.triggerThrough;
-      const isChip = this.controls.triggerSkillOrTactics;
+      const p1Power = this.controls.triggerShootWithPower;
+      const p2Power = this.controls.p2.triggerShootWithPower;
+      const power = p1Power ?? p2Power ?? 0.78;
+      const isKnuckle =
+        this.controls.triggerThrough ||
+        this.controls.p2.triggerThrough ||
+        Math.abs(this.controls.setPieceSpin) < 0.18;
+      const isChip = this.controls.triggerSkillOrTactics || this.controls.p2.triggerSkillOrTactics;
       this.controls.triggerShootWithPower = null;
       this.controls.triggerThrough = false;
       this.controls.triggerSkillOrTactics = false;
+      this.controls.p2.triggerShootWithPower = null;
+      this.controls.p2.triggerThrough = false;
+      this.controls.p2.triggerSkillOrTactics = false;
 
-      const finalSpeed = isChip ? 18.5 : 22.5 + power * 11.5;
-      const finalLoft = isChip ? 8.8 : 4.5 + this.controls.setPieceElevation * 5.6;
+      const finalSpeed = isChip ? 18.5 : isKnuckle ? 29.5 : 22.5 + power * 11.5;
+      const finalLoft = isChip ? 8.8 : isKnuckle ? 3.8 + this.controls.setPieceElevation * 3.2 : 4.5 + this.controls.setPieceElevation * 5.6;
       const finalSpin = isKnuckle ? 0 : this.controls.setPieceSpin * 1.55;
 
       if (this.setPieceKicker) {
@@ -1900,20 +2300,33 @@ export class Game {
 
       this.ball.updateTrajectoryGuide(this.ball.position, dir, 0, 0, 0, false);
       this.ball.kick(dir, finalSpeed, finalLoft, finalSpin, this.setPieceKicker?.id || null, this.setPieceTeam);
+      this.ball.isShot = true;
+      this.ball.isKnuckleShot = isKnuckle;
       this.audio.playKick(0.95);
-      this.commentary.announce(`${this.setPieceKicker?.starName || '키커'} 직접 감아차기 프리킥 슛!!`, 'normal');
+
+      if (isKnuckle) {
+        this.commentary.announce(`${this.setPieceKicker?.starName || '키커'} 전광석화 같은 무회전 프리킥 강슛(KNUCKLEBALL)!!`, 'high');
+        this.showBanner('🌀 KNUCKLEBALL FREE KICK!', '회전 없는 공포의 낙차 궤적 무회전 슛!', 'banner-setpiece', 2.0);
+      } else {
+        this.commentary.announce(`${this.setPieceKicker?.starName || '키커'} 직접 감아차기 프리킥 슛!!`, 'normal');
+      }
       this.hideSetPiecePanel();
       this.stateTimer = 0;
       this.matchState = 'FREE_KICK_PLAY';
       return;
     }
 
-    if (isUserKicker && this.controls.triggerPass && this.setPieceKicker) {
+    const p1Pass = this.controls.triggerPass;
+    const p2Pass = this.controls.p2.triggerPass;
+    if (isUserKicker && (p1Pass || p2Pass) && this.setPieceKicker) {
       this.controls.triggerPass = false;
+      this.controls.p2.triggerPass = false;
       const mate = this.findBestTeammateForPass(this.setPieceKicker, dir, false);
       const passDir = mate ? mate.position.clone().sub(this.ball.position).normalize() : dir;
       this.ball.updateTrajectoryGuide(this.ball.position, dir, 0, 0, 0, false);
       this.ball.kick(passDir, 18.0, 1.0, 0, this.setPieceKicker.id, this.setPieceTeam);
+      this.ball.isShot = false;
+      this.ball.isKnuckleShot = false;
       this.audio.playKick(0.55);
       if (mate) this.setControlledPlayer(mate);
       this.hideSetPiecePanel();
@@ -1961,16 +2374,35 @@ export class Game {
         (this.controls.triggerShootWithPower !== null ||
           this.controls.triggerPass ||
           this.controls.triggerThrough ||
-          this.controls.triggerSkillOrTactics)) ||
+          this.controls.triggerSkillOrTactics ||
+          this.controls.p2.triggerShootWithPower !== null ||
+          this.controls.p2.triggerPass ||
+          this.controls.p2.triggerThrough ||
+          this.controls.p2.triggerSkillOrTactics)) ||
       (!isUserKicker && this.aiSetPieceTimer <= 0);
 
     if (shouldShootPK) {
-      const power = this.controls.triggerShootWithPower ?? 0.82;
-      const isPanenkaChip = this.controls.triggerPass || this.controls.triggerSkillOrTactics;
+      const p1Power = this.controls.triggerShootWithPower;
+      const p2Power = this.controls.p2.triggerShootWithPower;
+      const power = p1Power ?? p2Power ?? 0.82;
+      const isKnuckle =
+        this.controls.triggerThrough ||
+        this.controls.p2.triggerThrough ||
+        Math.abs(this.controls.setPieceSpin) < 0.18;
+      const isPanenkaChip =
+        this.controls.triggerPass ||
+        this.controls.triggerSkillOrTactics ||
+        this.controls.p2.triggerPass ||
+        this.controls.p2.triggerSkillOrTactics;
+
       this.controls.triggerShootWithPower = null;
       this.controls.triggerPass = false;
       this.controls.triggerThrough = false;
       this.controls.triggerSkillOrTactics = false;
+      this.controls.p2.triggerShootWithPower = null;
+      this.controls.p2.triggerPass = false;
+      this.controls.p2.triggerThrough = false;
+      this.controls.p2.triggerSkillOrTactics = false;
 
       if (!isUserKicker) {
         this.setPieceAimZ = (Math.random() < 0.5 ? -1 : 1) * (2.2 + Math.random() * 2.5);
@@ -1983,8 +2415,9 @@ export class Game {
         this.setPieceAimZ - this.ball.position.z
       ).normalize();
 
-      const pkSpeed = isPanenkaChip ? 16.5 : 24.5 + power * 9.5;
-      const pkLoft = isPanenkaChip ? 8.2 : 1.5 + this.setPieceAimY * 2.3;
+      const pkSpeed = isPanenkaChip ? 16.5 : isKnuckle ? 29.0 : 24.5 + power * 9.5;
+      const pkLoft = isPanenkaChip ? 8.2 : isKnuckle ? 1.6 + this.setPieceAimY * 1.8 : 1.5 + this.setPieceAimY * 2.3;
+      const pkSpin = isKnuckle ? 0 : spin;
 
       if (this.setPieceKicker) {
         this.setPieceKicker.kickAnimTimer = 0.3;
@@ -2009,10 +2442,14 @@ export class Game {
       }
 
       this.ball.updateTrajectoryGuide(this.ball.position, shotDir, 0, 0, 0, false);
-      this.ball.kick(shotDir, pkSpeed, pkLoft, spin, this.setPieceKicker?.id || null, this.setPieceTeam);
+      this.ball.kick(shotDir, pkSpeed, pkLoft, pkSpin, this.setPieceKicker?.id || null, this.setPieceTeam);
+      this.ball.isShot = true;
+      this.ball.isKnuckleShot = isKnuckle;
       this.audio.playKick(0.95);
       if (isPanenkaChip) {
         this.commentary.announce('아! 대담한 파넨카 칩슛을 시도합니다!!', 'high');
+      } else if (isKnuckle) {
+        this.commentary.announce('골키퍼를 얼어붙게 만드는 강력한 무회전 페널티킥!!', 'high');
       }
       this.hideSetPiecePanel();
       this.stateTimer = 0;
@@ -2111,6 +2548,10 @@ export class Game {
               this.audio.playKick(0.3);
             }
           } else if (!this.ball.ownerId) {
+            // Teammates should not trap high-speed shots mid-flight (prevents knuckleball/free kick shots from turning into accidental passes!)
+            if (this.ball.isShot && this.ball.velocity.length() > 11.5 && p.team === this.ball.lastTouchTeam) {
+              continue;
+            }
             this.ball.ownerId = p.id;
             this.ball.lastTouchTeam = p.team;
             this.pendingOffsideReceiverId = null;
@@ -2125,11 +2566,16 @@ export class Game {
     if (this.ball.ownerId) {
       const owner = this.players.find((p) => p.id === this.ball.ownerId);
       if (owner && !owner.isSentOff && owner.fallenTimer <= 0) {
-        const dribbleOffset = 0.86;
+        const isOwnerSprinting =
+          (owner === this.controlledPlayer && this.controls.isSprinting) ||
+          (owner === this.controlledPlayer2 && this.controls.p2.isSprinting);
+        const dribbleOffset = isOwnerSprinting ? 1.08 : 0.86;
+        const dribbleLerp = isOwnerSprinting ? dt * 26 : dt * 18;
+
         const targetX = owner.position.x + Math.sin(owner.facingAngle) * dribbleOffset;
         const targetZ = owner.position.z + Math.cos(owner.facingAngle) * dribbleOffset;
-        this.ball.position.x = THREE.MathUtils.lerp(this.ball.position.x, targetX, dt * 18);
-        this.ball.position.z = THREE.MathUtils.lerp(this.ball.position.z, targetZ, dt * 18);
+        this.ball.position.x = THREE.MathUtils.lerp(this.ball.position.x, targetX, dribbleLerp);
+        this.ball.position.z = THREE.MathUtils.lerp(this.ball.position.z, targetZ, dribbleLerp);
         this.ball.position.y = this.ball.radius;
         this.ball.velocity.copy(owner.velocity);
 
@@ -2255,17 +2701,37 @@ export class Game {
       const dirX = this.setPieceTeam === 'HOME' ? 1 : -1;
       this.camPosTarget.set(this.ball.position.x - dirX * 9.2, 3.6, 0);
       this.camLookTarget.set(this.ball.position.x + dirX * 12, 1.8, this.setPieceAimZ * 0.35);
-    } else if (this.cameraMode === 'THIRD_PERSON' && this.controlledPlayer) {
-      const p = this.controlledPlayer.position;
-      this.camPosTarget.set(p.x - 14, 9.5, p.z * 0.75);
-      this.camLookTarget.set(this.ball.position.x + 8, 1.2, this.ball.position.z);
+    } else if (this.cameraMode === 'THIRD_PERSON') {
+      const targetPlayer =
+        this.net.role === 'GUEST' && this.controlledPlayer2
+          ? this.controlledPlayer2
+          : this.controlledPlayer;
+      if (targetPlayer) {
+        const p = targetPlayer.position;
+        this.camPosTarget.set(p.x - 14, 9.5, p.z * 0.75);
+        this.camLookTarget.set(this.ball.position.x + 8, 1.2, this.ball.position.z);
+      }
     } else if (this.cameraMode === 'WIDE') {
       this.camPosTarget.set(this.ball.position.x * 0.35, 38, 52);
       this.camLookTarget.set(this.ball.position.x * 0.45, 0, this.ball.position.z * 0.35);
     } else {
-      const bx = this.ball.position.x;
-      const bz = this.ball.position.z;
-      this.camPosTarget.set(bx * 0.68, 23.5, 34.5 + bz * 0.42);
+      let bx = this.ball.position.x;
+      let bz = this.ball.position.z;
+      let zoomHeight = 23.5;
+      let zoomDist = 34.5;
+      if (this.coopMode === 'LOCAL_COOP' && this.controlledPlayer && this.controlledPlayer2) {
+        const midX = (this.controlledPlayer.position.x + this.controlledPlayer2.position.x) * 0.5;
+        const midZ = (this.controlledPlayer.position.z + this.controlledPlayer2.position.z) * 0.5;
+        bx = bx * 0.7 + midX * 0.3;
+        bz = bz * 0.7 + midZ * 0.3;
+        const spread = this.controlledPlayer.position.distanceTo(this.controlledPlayer2.position);
+        if (spread > 18) {
+          const extra = Math.min(7.5, (spread - 18) * 0.25);
+          zoomHeight += extra * 0.85;
+          zoomDist += extra;
+        }
+      }
+      this.camPosTarget.set(bx * 0.68, zoomHeight, zoomDist + bz * 0.42);
       this.camLookTarget.set(bx * 0.78, 0.8, bz * 0.52);
     }
 
@@ -2323,13 +2789,17 @@ export class Game {
       const pz = mapZ(p.position.z);
 
       ctx.beginPath();
-      ctx.arc(px, pz, p.isControlled ? 3.2 : 2.3, 0, Math.PI * 2);
+      ctx.arc(px, pz, p.controllerSlot !== 'NONE' ? 3.4 : 2.3, 0, Math.PI * 2);
       ctx.fillStyle = p.team === 'HOME' ? this.homeTeam.uiHex : this.awayTeam.uiHex;
       ctx.fill();
 
-      if (p.isControlled) {
+      if (p.controllerSlot === 'P1') {
         ctx.strokeStyle = '#00e5ff';
-        ctx.lineWidth = 1.2;
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+      } else if (p.controllerSlot === 'P2') {
+        ctx.strokeStyle = '#00e676';
+        ctx.lineWidth = 1.4;
         ctx.stroke();
       } else if (p.yellowCards > 0) {
         ctx.strokeStyle = '#ffea00';
@@ -2388,7 +2858,13 @@ export class Game {
     document.getElementById('pk-dive-panel')?.classList.add('hidden');
   }
 
-  public showBanner(title: string, subtitle: string, styleClass: string, durationSec: number): void {
+  public showBanner(
+    title: string,
+    subtitle: string,
+    styleClass: string,
+    durationSec: number,
+    fromNetwork: boolean = false
+  ): void {
     const banner = document.getElementById('broadcast-banner');
     const titleEl = document.getElementById('banner-title');
     const subEl = document.getElementById('banner-sub');
@@ -2402,6 +2878,150 @@ export class Game {
     (banner as unknown as { _hideTimer?: number })._hideTimer = window.setTimeout(() => {
       banner.classList.add('hidden');
     }, durationSec * 1000);
+
+    if (!fromNetwork && this.net.role === 'HOST' && this.net.isConnected) {
+      this.net.send({
+        t: 'banner',
+        title,
+        sub: subtitle,
+        cls: styleClass,
+        dur: durationSec
+      });
+    }
+  }
+
+  private broadcastNetworkSnapshot(dt: number): void {
+    this.netSnapTimer += dt;
+    if (this.netSnapTimer < 0.033) return; // ~30Hz snapshot broadcast
+    this.netSnapTimer = 0;
+
+    const snap: CoopStateSnapshot = {
+      state: this.matchState,
+      half: this.half,
+      clock: Number(this.matchClockSec.toFixed(2)),
+      hScore: this.homeScore,
+      aScore: this.awayScore,
+      hYC: this.homeYellows,
+      aYC: this.awayYellows,
+      hRC: this.homeReds,
+      aRC: this.awayReds,
+      stance: this.tacticalStance,
+      diff: this.difficulty,
+      ballId: this.ball.currentBallId,
+      bx: Number(this.ball.position.x.toFixed(2)),
+      by: Number(this.ball.position.y.toFixed(2)),
+      bz: Number(this.ball.position.z.toFixed(2)),
+      bvx: Number(this.ball.velocity.x.toFixed(2)),
+      bvy: Number(this.ball.velocity.y.toFixed(2)),
+      bvz: Number(this.ball.velocity.z.toFixed(2)),
+      ownerId: this.ball.ownerId,
+      refX: Number(this.referee.position.x.toFixed(2)),
+      refZ: Number(this.referee.position.z.toFixed(2)),
+      refF: Number(this.referee.facingAngle.toFixed(2)),
+      players: this.players.map((p) => ({
+        id: p.id,
+        x: Number(p.position.x.toFixed(2)),
+        y: Number(p.position.y.toFixed(2)),
+        z: Number(p.position.z.toFixed(2)),
+        vx: Number(p.velocity.x.toFixed(2)),
+        vz: Number(p.velocity.z.toFixed(2)),
+        facing: Number(p.facingAngle.toFixed(2)),
+        slot: p.controllerSlot,
+        stam: Math.round(p.stamina),
+        yc: p.yellowCards,
+        rc: p.redCard,
+        sentOff: p.isSentOff,
+        kickT: Number(p.kickAnimTimer.toFixed(2)),
+        slideT: Number(p.slideTimer.toFixed(2)),
+        fallT: Number(p.fallenTimer.toFixed(2)),
+        diveT: Number(p.diveTimer.toFixed(2)),
+        diveZ: p.diveDirZ,
+        skillT: Number(p.skillTimer.toFixed(2)),
+        celebT: Number(p.celebrationTimer.toFixed(2)),
+        num: p.shirtNumber,
+        name: p.starName
+      }))
+    };
+
+    this.net.send({ t: 'snap', snap });
+  }
+
+  private applyNetworkSnapshot(snap: CoopStateSnapshot): void {
+    this.matchState = snap.state;
+    this.half = snap.half;
+    this.matchClockSec = snap.clock;
+
+    const scoreChanged =
+      this.homeScore !== snap.hScore ||
+      this.awayScore !== snap.aScore ||
+      this.homeYellows !== snap.hYC ||
+      this.awayYellows !== snap.aYC ||
+      this.homeReds !== snap.hRC ||
+      this.awayReds !== snap.aRC;
+
+    this.homeScore = snap.hScore;
+    this.awayScore = snap.aScore;
+    this.homeYellows = snap.hYC;
+    this.awayYellows = snap.aYC;
+    this.homeReds = snap.hRC;
+    this.awayReds = snap.aRC;
+
+    if (this.ball.currentBallId !== snap.ballId) {
+      this.ball.setBallStyle(snap.ballId);
+      this.updateScoreboardHUD();
+    }
+    if (scoreChanged) {
+      this.updateScoreboardHUD();
+    }
+
+    if (this.tacticalStance !== snap.stance || this.difficulty !== snap.diff) {
+      this.tacticalStance = snap.stance;
+      this.difficulty = snap.diff;
+      this.updateModeSpecificHUD();
+    }
+
+    this.updateClockHUD();
+
+    this.ball.position.set(snap.bx, snap.by, snap.bz);
+    this.ball.velocity.set(snap.bvx, snap.bvy, snap.bvz);
+    this.ball.ownerId = snap.ownerId;
+    this.ball.syncMesh();
+
+    this.referee.position.set(snap.refX, 0, snap.refZ);
+    this.referee.facingAngle = snap.refF;
+    this.referee.group.position.copy(this.referee.position);
+    this.referee.group.rotation.y = snap.refF;
+
+    for (const ps of snap.players) {
+      const p = this.players.find((pl) => pl.id === ps.id);
+      if (!p) continue;
+      p.position.set(ps.x, ps.y, ps.z);
+      p.velocity.set(ps.vx, 0, ps.vz);
+      p.facingAngle = ps.facing;
+      p.controllerSlot = ps.slot;
+      p.stamina = ps.stam;
+      p.yellowCards = ps.yc;
+      p.redCard = ps.rc;
+      p.isSentOff = ps.sentOff;
+      p.kickAnimTimer = ps.kickT;
+      p.slideTimer = ps.slideT;
+      p.fallenTimer = ps.fallT;
+      p.diveTimer = ps.diveT;
+      p.diveDirZ = ps.diveZ;
+      p.skillTimer = ps.skillT;
+      p.celebrationTimer = ps.celebT;
+      if (ps.slot === 'P1') this.controlledPlayer = p;
+      if (ps.slot === 'P2') this.controlledPlayer2 = p;
+    }
+  }
+
+  private updateGuestVisuals(dt: number): void {
+    this.ball.update(dt);
+    for (const p of this.players) {
+      p.update(dt, p.controllerSlot === 'P2' && this.controls.isSprinting);
+    }
+    this.northLinesman.update(dt, this.awayPlayers, this.ball.position);
+    this.southLinesman.update(dt, this.homePlayers, this.ball.position);
   }
 
   public updateScoreboardHUD(): void {
