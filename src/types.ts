@@ -57,6 +57,10 @@ export type CoopPlayMode = 'SOLO' | 'LOCAL_COOP' | 'ONLINE_COOP';
 
 export type TacticalStance = 'ATTACK' | 'BALANCED' | 'DEFEND';
 
+export type PassType = 'NONE' | 'GROUND' | 'LOFTED';
+
+export type HeaderStyle = 'JUMP' | 'DIVING';
+
 export type MatchState =
   | 'KICKOFF'
   | 'PLAYING'
@@ -107,10 +111,13 @@ export interface ReplayActorSnapshot {
   y: number;
   z: number;
   facing: number;
+  rotX: number;
   kickTimer: number;
   slideTimer: number;
   diveTimer: number;
   diveDirZ: number;
+  headerTimer: number;
+  headerType: HeaderStyle;
 }
 
 export interface ReplayFrame {

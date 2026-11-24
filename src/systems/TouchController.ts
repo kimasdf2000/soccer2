@@ -89,6 +89,8 @@ export class TouchController implements PlayerInputState {
 
   private isDefenseContext: boolean = false;
   private isSetPieceContext: boolean = false;
+  private isAerialContext: boolean = false;
+  private setPieceSubMode: 'NONE' | 'FREE_KICK' | 'CORNER_KICK' | 'PENALTY_KICK' = 'NONE';
   private prevGamepadButtons: Record<number, boolean[]> = {};
 
   constructor() {
@@ -169,10 +171,24 @@ export class TouchController implements PlayerInputState {
     return pkt;
   }
 
-  public setContextMode(isDefense: boolean, isSetPiece: boolean): void {
-    if (this.isDefenseContext === isDefense && this.isSetPieceContext === isSetPiece) return;
+  public setContextMode(
+    isDefense: boolean,
+    isSetPiece: boolean,
+    isAerialHeaderReady: boolean = false,
+    setPieceSubMode: 'NONE' | 'FREE_KICK' | 'CORNER_KICK' | 'PENALTY_KICK' = 'NONE'
+  ): void {
+    if (
+      this.isDefenseContext === isDefense &&
+      this.isSetPieceContext === isSetPiece &&
+      this.isAerialContext === isAerialHeaderReady &&
+      this.setPieceSubMode === setPieceSubMode
+    ) {
+      return;
+    }
     this.isDefenseContext = isDefense;
     this.isSetPieceContext = isSetPiece;
+    this.isAerialContext = isAerialHeaderReady;
+    this.setPieceSubMode = setPieceSubMode;
 
     const updatePadButtons = (prefix: string) => {
       const btnShoot = document.getElementById(`${prefix}btn-shoot`);
@@ -182,14 +198,36 @@ export class TouchController implements PlayerInputState {
       if (!btnShoot || !btnPass || !btnThrough) return;
 
       if (isSetPiece) {
-        btnShoot.innerHTML = `<span class="btn-icon">🎯</span><span class="btn-title">감아차기 슛</span><span class="btn-sub">HOLD 게이지</span>`;
-        btnShoot.className = 'action-btn btn-shoot setpiece-glow';
-        btnPass.innerHTML = `<span class="btn-icon">👟</span><span class="btn-title">짧은 패스</span><span class="btn-sub">전술 세트피스</span>`;
-        btnPass.className = 'action-btn btn-pass';
-        btnThrough.innerHTML = `<span class="btn-icon">🌀</span><span class="btn-title">무회전 강슛</span><span class="btn-sub">KNUCKLE</span>`;
-        btnThrough.className = 'action-btn btn-through';
-        if (btnSkill) {
-          btnSkill.innerHTML = `<span class="btn-icon">🏔️</span><span class="btn-title">칩슛/로빙</span><span class="btn-sub">PANENKA</span>`;
+        if (setPieceSubMode === 'CORNER_KICK') {
+          btnShoot.innerHTML = `<span class="btn-icon">🎯</span><span class="btn-title">직접 감아차기</span><span class="btn-sub">HOLD 게이지</span>`;
+          btnShoot.className = 'action-btn btn-shoot setpiece-glow';
+          btnPass.innerHTML = `<span class="btn-icon">👟</span><span class="btn-title">땅볼 패스</span><span class="btn-sub">짧은 코너킥</span>`;
+          btnPass.className = 'action-btn btn-pass';
+          btnThrough.innerHTML = `<span class="btn-icon">🌈</span><span class="btn-title">높은 크로스</span><span class="btn-sub">헤딩 찬스!</span>`;
+          btnThrough.className = 'action-btn btn-through header-cross-glow';
+          if (btnSkill) {
+            btnSkill.innerHTML = `<span class="btn-icon">🏔️</span><span class="btn-title">로빙 칩</span><span class="btn-sub">파포스트</span>`;
+          }
+        } else if (setPieceSubMode === 'FREE_KICK') {
+          btnShoot.innerHTML = `<span class="btn-icon">🎯</span><span class="btn-title">프리킥 슛</span><span class="btn-sub">HOLD 게이지</span>`;
+          btnShoot.className = 'action-btn btn-shoot setpiece-glow';
+          btnPass.innerHTML = `<span class="btn-icon">👟</span><span class="btn-title">땅볼 패스</span><span class="btn-sub">짧은 연결</span>`;
+          btnPass.className = 'action-btn btn-pass';
+          btnThrough.innerHTML = `<span class="btn-icon">🌈</span><span class="btn-title">높은 패스</span><span class="btn-sub">로빙 크로스</span>`;
+          btnThrough.className = 'action-btn btn-through';
+          if (btnSkill) {
+            btnSkill.innerHTML = `<span class="btn-icon">🌀</span><span class="btn-title">칩슛/무회전</span><span class="btn-sub">특수 킥</span>`;
+          }
+        } else {
+          btnShoot.innerHTML = `<span class="btn-icon">🎯</span><span class="btn-title">감아차기 슛</span><span class="btn-sub">HOLD 게이지</span>`;
+          btnShoot.className = 'action-btn btn-shoot setpiece-glow';
+          btnPass.innerHTML = `<span class="btn-icon">🏔️</span><span class="btn-title">파넨카 칩</span><span class="btn-sub">로빙 PK</span>`;
+          btnPass.className = 'action-btn btn-pass';
+          btnThrough.innerHTML = `<span class="btn-icon">🌀</span><span class="btn-title">무회전 강슛</span><span class="btn-sub">KNUCKLE</span>`;
+          btnThrough.className = 'action-btn btn-through';
+          if (btnSkill) {
+            btnSkill.innerHTML = `<span class="btn-icon">🏔️</span><span class="btn-title">칩슛/로빙</span><span class="btn-sub">PANENKA</span>`;
+          }
         }
       } else if (isDefense) {
         btnShoot.innerHTML = `<span class="btn-icon">💥</span><span class="btn-title">슬라이딩 태클</span><span class="btn-sub">파울/카드 주의</span>`;
@@ -201,12 +239,22 @@ export class TouchController implements PlayerInputState {
         if (btnSkill) {
           btnSkill.innerHTML = `<span class="btn-icon">📋</span><span class="btn-title">전술 변경</span><span class="btn-sub">공격·수비</span>`;
         }
+      } else if (isAerialHeaderReady) {
+        btnShoot.innerHTML = `<span class="btn-icon">💥</span><span class="btn-title">헤딩 슛!</span><span class="btn-sub">공중볼 타격</span>`;
+        btnShoot.className = 'action-btn btn-shoot header-ready-glow';
+        btnPass.innerHTML = `<span class="btn-icon">👟</span><span class="btn-title">땅볼 패스</span><span class="btn-sub">헤딩 떨구기</span>`;
+        btnPass.className = 'action-btn btn-pass';
+        btnThrough.innerHTML = `<span class="btn-icon">🌈</span><span class="btn-title">높은 패스</span><span class="btn-sub">헤딩 로빙</span>`;
+        btnThrough.className = 'action-btn btn-through';
+        if (btnSkill) {
+          btnSkill.innerHTML = `<span class="btn-icon">✨</span><span class="btn-title">개인기 턴</span><span class="btn-sub">마르세유 360°</span>`;
+        }
       } else {
         btnShoot.innerHTML = `<span class="btn-icon">⚽</span><span class="btn-title">슛 (SHOOT)</span><span class="btn-sub">길게 눌러 파워</span>`;
         btnShoot.className = 'action-btn btn-shoot';
-        btnPass.innerHTML = `<span class="btn-icon">👟</span><span class="btn-title">패스 (PASS)</span><span class="btn-sub">파트너 연결</span>`;
+        btnPass.innerHTML = `<span class="btn-icon">👟</span><span class="btn-title">땅볼 패스</span><span class="btn-sub">낮고 빠른 연결</span>`;
         btnPass.className = 'action-btn btn-pass';
-        btnThrough.innerHTML = `<span class="btn-icon">⚡</span><span class="btn-title">스루 패스</span><span class="btn-sub">공간 침투</span>`;
+        btnThrough.innerHTML = `<span class="btn-icon">🌈</span><span class="btn-title">높은 패스</span><span class="btn-sub">로빙·크로스</span>`;
         btnThrough.className = 'action-btn btn-through';
         if (btnSkill) {
           btnSkill.innerHTML = `<span class="btn-icon">✨</span><span class="btn-title">개인기 턴</span><span class="btn-sub">마르세유 360°</span>`;

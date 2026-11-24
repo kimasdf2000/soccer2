@@ -53,12 +53,13 @@ body {
   pointer-events: auto;
   display: flex;
   align-items: center;
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.92));
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(9, 16, 34, 0.95), rgba(23, 37, 68, 0.92));
+  border: 1.5px solid rgba(56, 189, 248, 0.58);
+  border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.48);
-  height: 38px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.58), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(10px);
+  height: 40px;
 }
 
 .sb-half {
@@ -769,8 +770,9 @@ body {
 .btn-switch {
   top: 0px;
   left: 88px;
-  background: radial-gradient(circle at 30% 30%, #a855f7, #6b21a8);
-  border-color: #e9d5ff;
+  background: radial-gradient(circle at 30% 30%, #0ea5e9, #4338ca);
+  border-color: #bae6fd;
+  box-shadow: 0 8px 22px rgba(14, 165, 233, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.35);
 }
 
 #btn-shoot,
@@ -781,6 +783,35 @@ body {
   height: 84px;
   background: radial-gradient(circle at 30% 30%, #f43f5e, #be123c);
   border-color: #fecdd3;
+  box-shadow: 0 8px 24px rgba(244, 63, 94, 0.45), inset 0 1px 2px rgba(255, 255, 255, 0.35);
+}
+
+.header-ready-glow {
+  background: radial-gradient(circle at 30% 30%, #facc15, #ea580c) !important;
+  border-color: #ffffff !important;
+  color: #090d16 !important;
+  box-shadow: 0 0 28px rgba(250, 204, 21, 0.95), 0 0 12px rgba(0, 230, 118, 0.75) !important;
+  animation: headerPulse 0.48s infinite alternate cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+.header-ready-glow .btn-title,
+.header-ready-glow .btn-sub {
+  color: #090d16;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.header-cross-glow {
+  box-shadow: 0 0 22px rgba(56, 189, 248, 0.85), 0 0 10px rgba(250, 204, 21, 0.65);
+  border-color: #fef08a;
+}
+
+@keyframes headerPulse {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.08);
+  }
 }
 
 .btn-tackle {
@@ -802,8 +833,9 @@ body {
 .btn-press {
   bottom: 0px;
   left: 18px;
-  background: radial-gradient(circle at 30% 30%, #3b82f6, #1d4ed8);
-  border-color: #bfdbfe;
+  background: radial-gradient(circle at 30% 30%, #06b6d4, #1d4ed8);
+  border-color: #a5f3fc;
+  box-shadow: 0 8px 22px rgba(6, 182, 212, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.35);
 }
 
 #btn-sprint,

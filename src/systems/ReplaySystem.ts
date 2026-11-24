@@ -37,10 +37,13 @@ export class ReplaySystem {
         y: p.bodyGroup.position.y,
         z: p.position.z,
         facing: p.facingAngle,
+        rotX: p.bodyGroup.rotation.x,
         kickTimer: p.kickAnimTimer,
         slideTimer: p.slideTimer,
         diveTimer: p.diveTimer,
-        diveDirZ: p.diveDirZ
+        diveDirZ: p.diveDirZ,
+        headerTimer: p.headerTimer,
+        headerType: p.headerType
       }))
     };
 
@@ -95,6 +98,7 @@ export class ReplaySystem {
       p.group.position.copy(p.position);
       p.bodyGroup.position.y = snap.y;
       p.facingAngle = snap.facing;
+      p.bodyGroup.rotation.x = snap.rotX;
       p.bodyGroup.rotation.y = snap.facing;
       p.bodyGroup.rotation.z = snap.diveTimer > 0 ? -snap.diveDirZ * 1.1 : 0;
     }

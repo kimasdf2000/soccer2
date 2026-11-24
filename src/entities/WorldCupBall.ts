@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WorldCupBallConfig, WorldCupBallId } from '../types';
+import { PassType, WorldCupBallConfig, WorldCupBallId } from '../types';
 
 export const WORLD_CUP_BALLS: Record<WorldCupBallId, WorldCupBallConfig> = {
   trionda_26: {
@@ -364,8 +364,17 @@ export class WorldCupBall {
   public mesh: THREE.Mesh;
   public shadowDisc: THREE.Mesh;
   public trailLine: THREE.Line;
+  public trailRibbon: THREE.Mesh;
   public trajectoryLine: THREE.Line;
   public targetReticle: THREE.Group;
+  public dropZoneGroup: THREE.Group;
+  private dropOuterRing: THREE.Mesh;
+  private dropInnerRing: THREE.Mesh;
+  private dropBeaconMesh: THREE.Mesh;
+  private impactBurstMesh: THREE.Mesh;
+  private impactBurstTimer: number = 0;
+  private impactBurstDuration: number = 0.36;
+  private impactBurstMaxScale: number = 1.6;
 
   public position: THREE.Vector3 = new THREE.Vector3(0, 0.42, 0);
   public velocity: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
@@ -377,8 +386,13 @@ export class WorldCupBall {
   public lastTouchTeam: 'HOME' | 'AWAY' = 'HOME';
   public lastKickerId: string | null = null;
   public ownerId: string | null = null;
+  public passType: PassType = 'NONE';
   public isShot: boolean = false;
   public isKnuckleShot: boolean = false;
+  public isHeaderShot: boolean = false;
+  public flightElapsed: number = 0;
+  public hasAerialDropTarget: boolean = false;
+  public predictedLandingPos: THREE.Vector3 = new THREE.Vector3();
 
   private trailPositions: THREE.Vector3[] = [];
   private material: THREE.MeshStandardMaterial;
@@ -389,15 +403,15 @@ export class WorldCupBall {
   constructor(scene: THREE.Scene, initialBallId: WorldCupBallId = 'trionda_26') {
     this.currentBallId = initialBallId;
 
-    const geo = new THREE.SphereGeometry(this.radius, 48, 48);
+    const geo = new THREE.SphereGeometry(this.radius, 56, 56);
     const { colorTex, bumpTex } = this.getOrCreateTextures(initialBallId);
 
     this.material = new THREE.MeshStandardMaterial({
       map: colorTex,
       bumpMap: bumpTex,
-      bumpScale: 0.016,
-      roughness: initialBallId === 'fevernova' ? 0.22 : 0.25,
-      metalness: initialBallId === 'fevernova' ? 0.22 : 0.12
+      bumpScale: 0.018,
+      roughness: initialBallId === 'fevernova' ? 0.18 : 0.22,
+      metalness: initialBallId === 'fevernova' ? 0.24 : 0.14
     });
 
     this.mesh = new THREE.Mesh(geo, this.material);
@@ -406,31 +420,129 @@ export class WorldCupBall {
     this.mesh.position.copy(this.position);
     scene.add(this.mesh);
 
-    // Ground contact shadow + glow ring so the ball is always crisp on tablets
-    const shadowGeo = new THREE.RingGeometry(0.01, this.radius * 1.25, 24);
+    // Soft radial contact shadow blob so the ball sits naturally on the grass
+    const shadowCanvas = document.createElement('canvas');
+    shadowCanvas.width = 128;
+    shadowCanvas.height = 128;
+    const sCtx = shadowCanvas.getContext('2d')!;
+    const sGrad = sCtx.createRadialGradient(64, 64, 6, 64, 64, 60);
+    sGrad.addColorStop(0, 'rgba(0, 0, 0, 0.68)');
+    sGrad.addColorStop(0.55, 'rgba(0, 0, 0, 0.32)');
+    sGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    sCtx.fillStyle = sGrad;
+    sCtx.fillRect(0, 0, 128, 128);
+    const shadowTex = new THREE.CanvasTexture(shadowCanvas);
+
+    const shadowGeo = new THREE.PlaneGeometry(this.radius * 3.1, this.radius * 3.1);
     shadowGeo.rotateX(-Math.PI / 2);
     const shadowMat = new THREE.MeshBasicMaterial({
-      color: 0x000000,
+      map: shadowTex,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.9,
       depthWrite: false
     });
     this.shadowDisc = new THREE.Mesh(shadowGeo, shadowMat);
-    this.shadowDisc.position.set(0, 0.02, 0);
+    this.shadowDisc.position.set(0, 0.025, 0);
     scene.add(this.shadowDisc);
 
-    // Spin / Power Flight Trail
+    // Spin / Power Flight Core Line + Tapered 3D Ribbon Trail
     const trailGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(28 * 3);
     trailGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const trailMat = new THREE.LineBasicMaterial({
       color: WORLD_CUP_BALLS[initialBallId].accentColor,
       transparent: true,
-      opacity: 0.65
+      opacity: 0.85
     });
     this.trailLine = new THREE.Line(trailGeo, trailMat);
     this.trailLine.frustumCulled = false;
     scene.add(this.trailLine);
+
+    const ribbonGeo = new THREE.BufferGeometry();
+    const ribbonVerts = new Float32Array(28 * 2 * 3);
+    const ribbonIndices: number[] = [];
+    for (let i = 0; i < 27; i++) {
+      const a = i * 2;
+      const b = a + 1;
+      const c = a + 2;
+      const d = a + 3;
+      ribbonIndices.push(a, b, c, b, d, c);
+    }
+    ribbonGeo.setAttribute('position', new THREE.BufferAttribute(ribbonVerts, 3));
+    ribbonGeo.setIndex(ribbonIndices);
+    const ribbonMat = new THREE.MeshBasicMaterial({
+      color: WORLD_CUP_BALLS[initialBallId].accentColor,
+      transparent: true,
+      opacity: 0.34,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    this.trailRibbon = new THREE.Mesh(ribbonGeo, ribbonMat);
+    this.trailRibbon.frustumCulled = false;
+    this.trailRibbon.visible = false;
+    scene.add(this.trailRibbon);
+
+    // 3D Aerial Ball Drop-Zone / Header Strike Indicator on the Pitch
+    this.dropZoneGroup = new THREE.Group();
+    const dzOuterGeo = new THREE.RingGeometry(1.18, 1.42, 36);
+    dzOuterGeo.rotateX(-Math.PI / 2);
+    this.dropOuterRing = new THREE.Mesh(
+      dzOuterGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xfacc15,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.88,
+        depthWrite: false
+      })
+    );
+
+    const dzInnerGeo = new THREE.RingGeometry(0.32, 0.52, 24);
+    dzInnerGeo.rotateX(-Math.PI / 2);
+    this.dropInnerRing = new THREE.Mesh(
+      dzInnerGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false
+      })
+    );
+
+    const beaconGeo = new THREE.CylinderGeometry(1.15, 1.15, 2.2, 24, 1, true);
+    beaconGeo.translate(0, 1.1, 0);
+    this.dropBeaconMesh = new THREE.Mesh(
+      beaconGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xfacc15,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.11,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      })
+    );
+    this.dropZoneGroup.add(this.dropOuterRing, this.dropInnerRing, this.dropBeaconMesh);
+    this.dropZoneGroup.visible = false;
+    scene.add(this.dropZoneGroup);
+
+    // 3D Impact Shockwave Ring (for Power Headers, Lofted Passes & Thunder Shots)
+    const burstGeo = new THREE.RingGeometry(0.35, 0.62, 32);
+    this.impactBurstMesh = new THREE.Mesh(
+      burstGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xfacc15,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      })
+    );
+    this.impactBurstMesh.visible = false;
+    scene.add(this.impactBurstMesh);
 
     // 3D Set-Piece Trajectory Prediction Arc (for Free Kicks & Penalty Kicks)
     const trajGeo = new THREE.BufferGeometry();
@@ -474,6 +586,7 @@ export class WorldCupBall {
 
     const cfg = WORLD_CUP_BALLS[ballId];
     (this.trailLine.material as THREE.LineBasicMaterial).color.set(cfg.accentColor);
+    (this.trailRibbon.material as THREE.MeshBasicMaterial).color.set(cfg.accentColor);
   }
 
   public getConfig(): WorldCupBallConfig {
@@ -1692,8 +1805,13 @@ export class WorldCupBall {
     this.velocity.set(0, 0, 0);
     this.spin.set(0, 0, 0);
     this.ownerId = null;
+    this.passType = 'NONE';
     this.isShot = false;
     this.isKnuckleShot = false;
+    this.isHeaderShot = false;
+    this.flightElapsed = 0;
+    this.hasAerialDropTarget = false;
+    this.dropZoneGroup.visible = false;
     this.trailPositions = [];
     this.syncMesh();
   }
@@ -1703,10 +1821,27 @@ export class WorldCupBall {
     this.velocity.set(0, 0, 0);
     this.spin.set(0, 0, 0);
     this.ownerId = null;
+    this.passType = 'NONE';
     this.isShot = false;
     this.isKnuckleShot = false;
+    this.isHeaderShot = false;
+    this.flightElapsed = 0;
+    this.hasAerialDropTarget = false;
+    this.dropZoneGroup.visible = false;
     this.trailPositions = [];
     this.syncMesh();
+  }
+
+  public spawnImpactBurst(pos: THREE.Vector3, colorHex: number = 0xfacc15, maxScale: number = 1.8): void {
+    this.impactBurstMesh.position.copy(pos);
+    (this.impactBurstMesh.material as THREE.MeshBasicMaterial).color.setHex(colorHex);
+    (this.impactBurstMesh.material as THREE.MeshBasicMaterial).opacity = 0.95;
+    this.impactBurstMesh.scale.setScalar(0.35);
+    this.impactBurstMesh.lookAt(pos.x, pos.y + 4, pos.z + 2);
+    this.impactBurstMesh.visible = true;
+    this.impactBurstDuration = 0.38;
+    this.impactBurstTimer = this.impactBurstDuration;
+    this.impactBurstMaxScale = maxScale;
   }
 
   public kick(
@@ -1715,7 +1850,8 @@ export class WorldCupBall {
     loftY: number,
     spinY: number = 0,
     kickerId: string | null = null,
-    team: 'HOME' | 'AWAY' = 'HOME'
+    team: 'HOME' | 'AWAY' = 'HOME',
+    passType: PassType = 'NONE'
   ): void {
     const cfg = this.getConfig();
     const dir = direction.clone();
@@ -1727,8 +1863,11 @@ export class WorldCupBall {
     // Spin Y creates lateral Magnus curve; top/back spin on X/Z
     this.spin.set(0, spinY * cfg.curveFactor, 0);
     this.ownerId = null;
+    this.passType = passType;
     this.isShot = false;
     this.isKnuckleShot = false;
+    this.isHeaderShot = false;
+    this.flightElapsed = 0;
     this.lastKickerId = kickerId;
     this.lastTouchTeam = team;
   }
@@ -1736,7 +1875,20 @@ export class WorldCupBall {
   public update(dt: number): void {
     const cfg = this.getConfig();
 
+    if (this.impactBurstTimer > 0) {
+      this.impactBurstTimer = Math.max(0, this.impactBurstTimer - dt);
+      const t = 1 - this.impactBurstTimer / this.impactBurstDuration;
+      const sc = 0.35 + t * this.impactBurstMaxScale;
+      this.impactBurstMesh.scale.setScalar(sc);
+      (this.impactBurstMesh.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.9;
+      if (this.impactBurstTimer <= 0) {
+        this.impactBurstMesh.visible = false;
+      }
+    }
+
     if (!this.ownerId) {
+      this.flightElapsed += dt;
+
       // Gravity
       const gravity = 21.5;
       if (this.position.y > this.radius || this.velocity.y > 0) {
@@ -1782,22 +1934,31 @@ export class WorldCupBall {
         if (this.velocity.y < -1.8) {
           this.velocity.y = -this.velocity.y * 0.56;
           this.spin.multiplyScalar(0.8);
+          if (this.passType === 'LOFTED') {
+            this.passType = 'NONE';
+          }
         } else {
           this.velocity.y = 0;
         }
 
-        // Grass rolling friction
-        const groundDrag = Math.pow(0.28, dt);
+        // Grass rolling friction (smoother zip for dedicated Ground Passes!)
+        const dragBase = this.passType === 'GROUND' ? 0.48 : 0.28;
+        const groundDrag = Math.pow(dragBase, dt);
         this.velocity.x *= groundDrag;
         this.velocity.z *= groundDrag;
 
         if (this.velocity.length() < 9.5) {
           this.isShot = false;
           this.isKnuckleShot = false;
+          this.isHeaderShot = false;
+        }
+        if (this.velocity.length() < 4.5) {
+          this.passType = 'NONE';
         }
       } else {
-        // Air drag (slightly lower drag on knuckleball so power carries to the net)
-        const airDrag = Math.pow(this.isKnuckleShot ? 0.88 : 0.82, dt);
+        // Air drag (slightly lower drag on knuckleball / lofted pass so accuracy holds)
+        const dragFactor = this.isKnuckleShot ? 0.88 : this.passType === 'LOFTED' ? 0.86 : 0.82;
+        const airDrag = Math.pow(dragFactor, dt);
         this.velocity.x *= airDrag;
         this.velocity.z *= airDrag;
       }
@@ -1816,26 +1977,48 @@ export class WorldCupBall {
         this.mesh.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), this.spin.y * dt * 2.5);
       }
     } else {
+      this.passType = 'NONE';
       this.isShot = false;
       this.isKnuckleShot = false;
+      this.isHeaderShot = false;
+      this.flightElapsed = 0;
     }
 
     this.syncMesh();
     this.updateTrail();
+    this.updateDropZoneIndicator();
   }
 
   public syncMesh(): void {
     this.mesh.position.copy(this.position);
-    this.shadowDisc.position.set(this.position.x, 0.03, this.position.z);
-    const heightScale = Math.max(0.45, 1 - (this.position.y - this.radius) * 0.09);
+    this.shadowDisc.position.set(this.position.x, 0.025, this.position.z);
+    const heightAbove = Math.max(0, this.position.y - this.radius);
+    const heightScale = Math.max(0.38, 1 - heightAbove * 0.075);
     this.shadowDisc.scale.set(heightScale, heightScale, heightScale);
+    (this.shadowDisc.material as THREE.MeshBasicMaterial).opacity = Math.max(0.22, 0.88 - heightAbove * 0.11);
   }
 
   private updateTrail(): void {
     const speed = this.velocity.length();
-    if (speed > 13.5 && !this.ownerId) {
+    const minTrailSpd = this.passType !== 'NONE' ? 10.5 : 13.0;
+
+    // Color-code trail by pass / header / shot type
+    let trailHex = WORLD_CUP_BALLS[this.currentBallId].accentColor;
+    if (this.isHeaderShot) {
+      trailHex = '#facc15';
+    } else if (this.isKnuckleShot) {
+      trailHex = '#ff1744';
+    } else if (this.passType === 'GROUND') {
+      trailHex = '#00e5ff';
+    } else if (this.passType === 'LOFTED') {
+      trailHex = '#fbbf24';
+    }
+    (this.trailLine.material as THREE.LineBasicMaterial).color.set(trailHex);
+    (this.trailRibbon.material as THREE.MeshBasicMaterial).color.set(trailHex);
+
+    if (speed > minTrailSpd && !this.ownerId) {
       this.trailPositions.unshift(this.position.clone());
-      if (this.trailPositions.length > 26) {
+      if (this.trailPositions.length > 28) {
         this.trailPositions.pop();
       }
     } else if (this.trailPositions.length > 0) {
@@ -1843,12 +2026,115 @@ export class WorldCupBall {
     }
 
     const posAttr = this.trailLine.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const ribAttr = this.trailRibbon.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const n = this.trailPositions.length;
+
     for (let i = 0; i < 28; i++) {
       const p = this.trailPositions[i] || this.position;
       posAttr.setXYZ(i, p.x, p.y, p.z);
+
+      const nextP = this.trailPositions[Math.min(i + 1, Math.max(0, n - 1))] || p;
+      let tx = p.x - nextP.x;
+      let tz = p.z - nextP.z;
+      const tLen = Math.hypot(tx, tz);
+      let px = 0;
+      let pz = 1;
+      if (tLen > 0.001) {
+        px = -tz / tLen;
+        pz = tx / tLen;
+      }
+      const taper = Math.max(0, 1 - i / Math.max(4, n)) * (this.isHeaderShot || this.isShot ? 0.34 : 0.22);
+      ribAttr.setXYZ(i * 2, p.x + px * taper, p.y + taper * 0.25, p.z + pz * taper);
+      ribAttr.setXYZ(i * 2 + 1, p.x - px * taper, p.y - taper * 0.25, p.z - pz * taper);
     }
     posAttr.needsUpdate = true;
-    this.trailLine.visible = this.trailPositions.length > 2;
+    ribAttr.needsUpdate = true;
+    this.trailLine.visible = n > 2;
+    this.trailRibbon.visible = n > 2;
+  }
+
+  /**
+   * Predicts where an airborne High Pass / Cross / Corner Kick enters the optimal header strike zone
+   * (~1.65m height on descent) and renders a pulsing 3D Drop-Zone target ring on the grass!
+   */
+  private updateDropZoneIndicator(): void {
+    const isHighFlight =
+      !this.ownerId &&
+      !this.isShot &&
+      (this.passType === 'LOFTED' || this.position.y > 1.25 || this.velocity.y > 4.2) &&
+      (this.position.y > 0.95 || this.velocity.y > 2.0);
+
+    if (!isHighFlight) {
+      this.hasAerialDropTarget = false;
+      this.dropZoneGroup.visible = false;
+      return;
+    }
+
+    const simPos = this.position.clone();
+    const simVel = this.velocity.clone();
+    const effSpinY = this.spin.y;
+    const gravity = 21.5;
+    const stepDt = 0.035;
+    const dragFactor = this.passType === 'LOFTED' ? 0.86 : 0.82;
+    const stepDrag = Math.pow(dragFactor, stepDt);
+
+    let peakY = simPos.y;
+    let foundHeaderZone = false;
+    const headerZonePos = simPos.clone();
+
+    for (let i = 0; i < 75; i++) {
+      simVel.y -= gravity * stepDt;
+      simVel.x += this.windForce.x * stepDt;
+      simVel.z += this.windForce.z * stepDt;
+      if (Math.abs(effSpinY) > 0.08) {
+        simVel.x += -effSpinY * simVel.z * 0.085 * stepDt;
+        simVel.z += effSpinY * simVel.x * 0.085 * stepDt;
+      }
+      simVel.x *= stepDrag;
+      simVel.z *= stepDrag;
+      simPos.addScaledVector(simVel, stepDt);
+
+      if (simPos.y > peakY) peakY = simPos.y;
+
+      // Capture the horizontal spot where the descending ball passes through headable height (~1.68m)
+      if (!foundHeaderZone && simVel.y < 0 && simPos.y <= 1.68) {
+        headerZonePos.copy(simPos);
+        foundHeaderZone = true;
+        break;
+      }
+      if (simPos.y <= this.radius) {
+        headerZonePos.copy(simPos);
+        foundHeaderZone = true;
+        break;
+      }
+    }
+
+    if (peakY < 1.35 || !foundHeaderZone) {
+      this.hasAerialDropTarget = false;
+      this.dropZoneGroup.visible = false;
+      return;
+    }
+
+    this.hasAerialDropTarget = true;
+    this.predictedLandingPos.set(
+      THREE.MathUtils.clamp(headerZonePos.x, -51.5, 51.5),
+      0,
+      THREE.MathUtils.clamp(headerZonePos.z, -33.5, 33.5)
+    );
+
+    this.dropZoneGroup.visible = true;
+    this.dropZoneGroup.position.set(this.predictedLandingPos.x, 0.045, this.predictedLandingPos.z);
+
+    const pulse = 0.92 + Math.sin(performance.now() * 0.012) * 0.12;
+    this.dropOuterRing.scale.setScalar(pulse);
+    this.dropInnerRing.scale.setScalar(1.85 - pulse * 0.7);
+    const inHeaderWindow = this.position.y >= 1.15 && this.position.y <= 3.65 && this.velocity.y <= 3.5;
+    (this.dropOuterRing.material as THREE.MeshBasicMaterial).color.setHex(
+      inHeaderWindow ? 0x00e676 : 0xfacc15
+    );
+    (this.dropBeaconMesh.material as THREE.MeshBasicMaterial).color.setHex(
+      inHeaderWindow ? 0x00e676 : 0xfacc15
+    );
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   GameMode,
   MatchSettings,
   MatchState,
+  PassType,
   TacticalStance,
   TeamConfig
 } from './types';
@@ -185,6 +186,13 @@ export class Game {
   private pendingOffsideReceiverId: string | null = null;
   private pendingOffsideLineX: number = 0;
 
+  // Aerial Header Shot Early-Input Buffer (P1 & P2)
+  private p1BufferedShootPower: number | null = null;
+  private p1BufferedShootTimer: number = 0;
+  private p2BufferedShootPower: number | null = null;
+  private p2BufferedShootTimer: number = 0;
+  private turfSprayAccum: number = 0;
+
   // Bench substitution index & celebration tracking
   private benchIndex: number = 0;
   private celebratingScorer: Player | null = null;
@@ -212,20 +220,22 @@ export class Game {
     this.setupNetworkCallbacks();
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0b1528);
-    this.scene.fog = new THREE.FogExp2(0x0b1528, 0.0038);
+    this.scene.background = new THREE.Color(0x071124);
+    this.scene.fog = new THREE.FogExp2(0x08152b, 0.0026);
 
     this.camera = new THREE.PerspectiveCamera(
       46,
       window.innerWidth / window.innerHeight,
       0.5,
-      260
+      300
     );
     this.camera.position.set(0, 26, 38);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.12;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(this.renderer.domElement);
@@ -256,22 +266,29 @@ export class Game {
   }
 
   private setupLighting(): void {
-    const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x14532d, 0.85);
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x15803d, 0.88);
     this.scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfffbeb, 1.55);
-    sunLight.position.set(35, 58, 32);
+    const sunLight = new THREE.DirectionalLight(0xfffbeb, 1.75);
+    sunLight.position.set(36, 62, 34);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.bias = -0.00035;
+    sunLight.shadow.normalBias = 0.02;
     sunLight.shadow.camera.near = 10;
-    sunLight.shadow.camera.far = 160;
+    sunLight.shadow.camera.far = 165;
     const d = 62;
     sunLight.shadow.camera.left = -d;
     sunLight.shadow.camera.right = d;
     sunLight.shadow.camera.top = d;
     sunLight.shadow.camera.bottom = -d;
     this.scene.add(sunLight);
+
+    // Cool stadium floodlight rim/fill light from opposite corner for crisp 3D depth
+    const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.62);
+    rimLight.position.set(-42, 44, -36);
+    this.scene.add(rimLight);
   }
 
   private setupNetworkCallbacks(): void {
@@ -1306,9 +1323,22 @@ export class Game {
       this.matchState === 'FREE_KICK_SETUP' ||
       this.matchState === 'PENALTY_SETUP' ||
       this.matchState === 'CORNER_KICK_SETUP';
+    const setPieceSubMode =
+      this.matchState === 'CORNER_KICK_SETUP'
+        ? 'CORNER_KICK'
+        : this.matchState === 'PENALTY_SETUP'
+        ? 'PENALTY_KICK'
+        : this.matchState === 'FREE_KICK_SETUP'
+        ? 'FREE_KICK'
+        : 'NONE';
     const ownerPlayer = this.players.find((p) => p.id === this.ball.ownerId);
     const isDefense = !isSetPiece && ownerPlayer !== undefined && ownerPlayer.team === 'AWAY';
-    this.controls.setContextMode(isDefense, isSetPiece);
+    const isAerialHeaderReady =
+      !isSetPiece &&
+      !isDefense &&
+      this.ball.ownerId === null &&
+      (this.ball.position.y >= 1.15 || this.ball.hasAerialDropTarget);
+    this.controls.setContextMode(isDefense, isSetPiece, isAerialHeaderReady, setPieceSubMode);
 
     const powerBarWrap = document.getElementById('shot-power-wrap');
     const powerBarFill = document.getElementById('shot-power-fill');
@@ -1662,6 +1692,7 @@ export class Game {
       this.updateControlledSlotInput('P2', this.controlledPlayer2, this.controls.p2, dt);
     }
 
+    this.turfSprayAccum += dt;
     for (const p of this.players) {
       if (p.isSentOff) continue;
       const isP1 = p === this.controlledPlayer;
@@ -1672,6 +1703,12 @@ export class Game {
       const sprinting =
         (isP1 && this.controls.isSprinting) || (isP2 && this.controls.p2.isSprinting);
       p.update(dt, sprinting);
+      if (p.slideTimer > 0 && this.turfSprayAccum > 0.08) {
+        this.stadium.spawnParticles(p.position, 'GRASS', 3);
+      }
+    }
+    if (this.turfSprayAccum > 0.08) {
+      this.turfSprayAccum = 0;
     }
 
     this.checkSlideTacklesAndFouls();
@@ -1745,14 +1782,201 @@ export class Game {
         move.lengthSq() > 0.05
           ? new THREE.Vector3(moveWorldX, 0, moveWorldZ).normalize()
           : this.ball.position.clone().sub(p.position).setY(0).normalize();
-      p.triggerSlideTackle(tackleDir);
+      if (p.triggerSlideTackle(tackleDir)) {
+        this.stadium.spawnParticles(p.position, 'GRASS', 10);
+      }
     }
 
-    const distToBall = p.position.distanceTo(this.ball.position);
-    const canKickBall = this.ball.ownerId === p.id || (this.ball.ownerId === null && distToBall < 1.85);
+    // Decay early-buffered Aerial Header shot input
+    if (slot === 'P1' && this.p1BufferedShootTimer > 0) {
+      this.p1BufferedShootTimer = Math.max(0, this.p1BufferedShootTimer - dt);
+      if (this.p1BufferedShootTimer <= 0) this.p1BufferedShootPower = null;
+    }
+    if (slot === 'P2' && this.p2BufferedShootTimer > 0) {
+      this.p2BufferedShootTimer = Math.max(0, this.p2BufferedShootTimer - dt);
+      if (this.p2BufferedShootTimer <= 0) this.p2BufferedShootPower = null;
+    }
+
+    const horizDistToBall = Math.hypot(
+      p.position.x - this.ball.position.x,
+      p.position.z - this.ball.position.z
+    );
+    const isBallAirborne =
+      this.ball.ownerId === null &&
+      (this.ball.position.y >= 1.12 || this.ball.velocity.y > 3.2 || this.ball.hasAerialDropTarget);
+    const notJustSelfKicked = !(p.id === this.ball.lastKickerId && this.ball.flightElapsed < 0.34);
+
+    // 0) AERIAL HEADER SYSTEM (높이 뜬 공을 슛할 때 점프 헤딩 / 다이빙 헤딩!)
+    const canHeaderNow =
+      this.ball.ownerId === null &&
+      notJustSelfKicked &&
+      this.ball.position.y >= 1.12 &&
+      this.ball.position.y <= 3.78 &&
+      horizDistToBall < 2.95;
+
+    // Buffer early shoot release while a high ball is in the air approaching the player
+    if (isBallAirborne && !canHeaderNow && input.triggerShootWithPower !== null) {
+      if (slot === 'P1') {
+        this.p1BufferedShootPower = input.triggerShootWithPower;
+        this.p1BufferedShootTimer = 0.68;
+      } else {
+        this.p2BufferedShootPower = input.triggerShootWithPower;
+        this.p2BufferedShootTimer = 0.68;
+      }
+      input.triggerShootWithPower = null;
+    }
+
+    if (canHeaderNow) {
+      let headerPower: number | null = input.triggerShootWithPower;
+      if (headerPower === null) {
+        headerPower = slot === 'P1' ? this.p1BufferedShootPower : this.p2BufferedShootPower;
+      }
+      // Also auto-trigger right in the sweet spot if the player is actively holding Shoot!
+      if (
+        headerPower === null &&
+        input.isChargingShot &&
+        input.shotPower >= 0.28 &&
+        horizDistToBall < 2.45 &&
+        this.ball.position.y <= 3.55
+      ) {
+        headerPower = Math.max(0.55, input.shotPower);
+        input.isChargingShot = false;
+        input.shotPower = 0;
+      }
+
+      if (headerPower !== null) {
+        input.triggerShootWithPower = null;
+        if (slot === 'P1') {
+          this.p1BufferedShootPower = null;
+          this.p1BufferedShootTimer = 0;
+        } else {
+          this.p2BufferedShootPower = null;
+          this.p2BufferedShootTimer = 0;
+        }
+
+        // Check offside before completing the header if flagged
+        if (p.id === this.pendingOffsideReceiverId) {
+          this.pendingOffsideReceiverId = null;
+          this.audio.playWhistle('foul');
+          this.northLinesman.raiseFlag('OFFSIDE!', 3.0);
+          this.stadium.showOffsideLaser(this.pendingOffsideLineX, 3.0);
+          this.showBanner('🚩 OFFSIDE! (오프사이드 반칙)', `${p.nameLabel} 최종 수비수보다 앞서 있었습니다!`, 'banner-yellow', 2.4);
+          this.commentary.announce(`아, 헤딩 직전 선심의 깃발이 올라갑니다! 오프사이드입니다!`, 'high');
+          this.enterFreeKickSetup('AWAY', p.position.clone());
+          return;
+        }
+
+        const aimZ = THREE.MathUtils.clamp(
+          moveWorldZ * 4.8,
+          -Stadium.GOAL_HALF_WIDTH + 0.65,
+          Stadium.GOAL_HALF_WIDTH - 0.65
+        );
+        const goalVec = new THREE.Vector3(
+          Stadium.HALF_LENGTH - this.ball.position.x,
+          0,
+          aimZ - this.ball.position.z
+        );
+        const distToGoal = Math.max(4.0, goalVec.length());
+        const shootDir = goalVec.normalize();
+
+        // Trigger Jumping Power Header or Torpedo Diving Header animation
+        const hStyle = p.triggerHeaderAction(this.ball.position, shootDir);
+
+        // Smooth magnetic aerial alignment so player's forehead meets the ball cleanly
+        p.position.x = THREE.MathUtils.lerp(p.position.x, this.ball.position.x - shootDir.x * 0.22, 0.52);
+        p.position.z = THREE.MathUtils.lerp(p.position.z, this.ball.position.z - shootDir.z * 0.22, 0.52);
+        p.group.position.copy(p.position);
+
+        // Compute downward/driven ballistic vertical velocity so headers hit the goal mouth accurately!
+        const hSpeed = (22.5 + headerPower * 12.5) * p.shootStat;
+        const effHorizSpd = hSpeed * this.ball.getConfig().speedFactor;
+        const tGoal = Math.min(1.65, (distToGoal / Math.max(14, effHorizSpd)) * 1.08);
+        const targetGoalY =
+          hStyle === 'DIVING' || distToGoal < 13.5
+            ? 0.72 + headerPower * 0.95
+            : 1.15 + headerPower * 1.3;
+        const headerLoftY = THREE.MathUtils.clamp(
+          (targetGoalY - this.ball.position.y + 0.5 * 21.5 * tGoal * tGoal) / tGoal,
+          -6.0,
+          9.2
+        );
+        const headerSpin = -moveWorldZ * 0.55 * p.curveStat;
+
+        this.pendingOffsideReceiverId = null;
+        this.ball.kick(shootDir, hSpeed, headerLoftY, headerSpin, p.id, 'HOME', 'NONE');
+        this.ball.isShot = true;
+        this.ball.isHeaderShot = true;
+        this.ball.spawnImpactBurst(this.ball.position, 0xfacc15, 1.95);
+        this.stadium.spawnParticles(this.ball.position, 'HEADER', 18);
+        this.audio.playHeaderHit(hStyle === 'DIVING');
+
+        if (this.matchState === 'FREE_KICK_PLAY') {
+          this.matchState = 'PLAYING';
+        }
+
+        if (hStyle === 'DIVING') {
+          this.showBanner('🦅 DIVING HEADER!!', `${p.starName} 몸을 날리는 환상적인 다이빙 헤딩 슛!`, 'banner-goal', 1.9);
+          this.commentary.announce(`${p.starName} 몸을 완전히 날렸습니다!! 폭발적인 다이빙 헤딩 슛!!`, 'high');
+        } else {
+          this.showBanner('💥 POWER HEADER!!', `${p.starName} 수비 위로 솟구치는 타점 높은 점프 헤딩 슛!`, 'banner-setpiece', 1.8);
+          this.commentary.announce(`${p.starName} 높은 타점에서 내리꽂는 강력한 점프 헤딩 슛!!`, 'high');
+        }
+        return;
+      }
+
+      // Aerial Header Pass (땅볼 헤딩 떨구기 패스 / 높은 헤딩 백헤더 패스)
+      if (input.triggerPass || input.triggerThrough) {
+        const isHighHeaderPass = input.triggerThrough;
+        input.triggerPass = false;
+        input.triggerThrough = false;
+
+        const passMate = this.findBestTeammateForPass(
+          p,
+          new THREE.Vector3(moveWorldX, 0, moveWorldZ),
+          isHighHeaderPass ? 'LOFTED' : 'GROUND'
+        );
+        const passDir = passMate
+          ? passMate.position.clone().sub(this.ball.position).setY(0).normalize()
+          : new THREE.Vector3(1, 0, moveWorldZ * 0.4).normalize();
+
+        if (passMate) {
+          this.checkPassForOffside(p, passMate);
+        }
+        p.triggerHeaderAction(this.ball.position, passDir);
+        this.ball.kick(
+          passDir,
+          isHighHeaderPass ? 16.5 : 15.5,
+          isHighHeaderPass ? 7.8 : -1.5,
+          0,
+          p.id,
+          'HOME',
+          isHighHeaderPass ? 'LOFTED' : 'GROUND'
+        );
+        this.ball.spawnImpactBurst(this.ball.position, 0x38bdf8, 1.35);
+        this.stadium.spawnParticles(this.ball.position, 'HEADER', 10);
+        this.audio.playHeaderHit(false);
+        this.commentary.announce(`${p.starName} 감각적인 헤딩 패스로 동료에게 연결합니다!`, 'low');
+
+        if (passMate) {
+          const isPartnerAlreadyControlling =
+            this.isCoopActive &&
+            ((slot === 'P1' && passMate === this.controlledPlayer2) ||
+              (slot === 'P2' && passMate === this.controlledPlayer));
+          if (!isPartnerAlreadyControlling) {
+            if (slot === 'P2') this.setControlledPlayer2(passMate);
+            else this.setControlledPlayer(passMate);
+          }
+        }
+        return;
+      }
+    }
+
+    const canKickBall =
+      this.ball.ownerId === p.id ||
+      (this.ball.ownerId === null && this.ball.position.y < 1.35 && horizDistToBall < 1.88);
 
     if (canKickBall) {
-      // 1) Shoot
+      // 1) Ground / Low-Volley Shoot
       if (input.triggerShootWithPower !== null) {
         const power = input.triggerShootWithPower;
         input.triggerShootWithPower = null;
@@ -1772,9 +1996,10 @@ export class Game {
 
         p.kickAnimTimer = 0.28;
         this.pendingOffsideReceiverId = null;
-        this.ball.kick(shootDir, speed, loft, curveSpin, p.id, 'HOME');
+        this.ball.kick(shootDir, speed, loft, curveSpin, p.id, 'HOME', 'NONE');
         this.ball.isShot = true;
         this.ball.isKnuckleShot = isKnuckleAim;
+        this.stadium.spawnParticles(this.ball.position, 'GRASS', 12);
 
         this.audio.playKick(power);
         if (isKnuckleAim) {
@@ -1785,22 +2010,35 @@ export class Game {
         }
       }
 
-      // 2) Short Ground Pass (Prioritizes Co-op Partner if aiming toward them!)
+      // 2) 땅볼 패스 (GROUND PASS — 잔디 위를 낮고 빠르게 미끄러지는 정교한 연결!)
       if (input.triggerPass) {
         input.triggerPass = false;
-        const passTarget = this.findBestTeammateForPass(p, new THREE.Vector3(moveWorldX, 0, moveWorldZ), false);
-        const passDir = passTarget
-          ? passTarget.position.clone().sub(p.position).normalize()
-          : new THREE.Vector3(Math.sin(p.facingAngle), 0, Math.cos(p.facingAngle));
+        const passTarget = this.findBestTeammateForPass(
+          p,
+          new THREE.Vector3(moveWorldX, 0, moveWorldZ),
+          'GROUND'
+        );
+        let passDir = new THREE.Vector3(Math.sin(p.facingAngle), 0, Math.cos(p.facingAngle));
+        let groundSpeed = 19.5;
 
         if (passTarget) {
           this.checkPassForOffside(p, passTarget);
+          const leadPos = passTarget.position
+            .clone()
+            .addScaledVector(passTarget.velocity, 0.22);
+          const toTarget = leadPos.sub(p.position).setY(0);
+          const dist = toTarget.length();
+          if (dist > 0.2) {
+            passDir = toTarget.normalize();
+          }
+          groundSpeed = THREE.MathUtils.clamp(16.5 + dist * 0.38, 18.0, 26.5);
         }
+
         p.kickAnimTimer = 0.22;
-        this.ball.kick(passDir, 18.8, 1.15, 0, p.id, 'HOME');
-        this.ball.isShot = false;
-        this.ball.isKnuckleShot = false;
-        this.audio.playKick(0.5);
+        this.ball.kick(passDir, groundSpeed, 0, 0, p.id, 'HOME', 'GROUND');
+        this.ball.spawnImpactBurst(this.ball.position, 0x00e5ff, 1.15);
+        this.stadium.spawnParticles(this.ball.position, 'GRASS', 8);
+        this.audio.playKick(0.52);
 
         if (passTarget) {
           const isPartnerAlreadyControlling =
@@ -1812,22 +2050,42 @@ export class Game {
             else this.setControlledPlayer(passTarget);
           } else {
             this.commentary.announce(
-              `${p.starName} 선수가 파트너 ${passTarget.starName} 선수에게 패스를 연결합니다!`,
+              `${p.starName} 선수가 파트너 ${passTarget.starName} 선수에게 정확한 땅볼 패스를 찔러줍니다!`,
               'low'
             );
           }
         }
       }
 
-      // 3) Through Pass / Lofted Ball
+      // 3) 높은 패스 / 로빙 크로스 (HIGH / LOFTED PASS — 수비 키를 넘겨 헤딩 타점으로 띄워주는 패스!)
       if (input.triggerThrough) {
         input.triggerThrough = false;
-        const targetMate = this.findBestTeammateForPass(p, new THREE.Vector3(moveWorldX, 0, moveWorldZ), true);
-        let dir = new THREE.Vector3(1, 0, moveWorldZ * 0.5).normalize();
+        const targetMate = this.findBestTeammateForPass(
+          p,
+          new THREE.Vector3(moveWorldX, 0, moveWorldZ),
+          'LOFTED'
+        );
+
+        const isWingCross = p.position.x > 14 && Math.abs(p.position.z) > 10.5;
+        let leadSpot = p.position
+          .clone()
+          .add(new THREE.Vector3(16, 0, moveWorldZ * 8));
+
         if (targetMate) {
           this.checkPassForOffside(p, targetMate);
-          const leadSpot = targetMate.position.clone().add(new THREE.Vector3(7.5, 0, 0));
-          dir = leadSpot.sub(p.position).normalize();
+          if (isWingCross) {
+            // Pinpoint aerial cross into the penalty box header zone!
+            const boxX = THREE.MathUtils.clamp(Math.max(targetMate.position.x + 5.0, 40.5), 35.0, 46.5);
+            const boxZ = THREE.MathUtils.clamp(targetMate.position.z * 0.55, -7.5, 7.5);
+            leadSpot.set(boxX, 0, boxZ);
+          } else {
+            // High lobbed pass into forward stride
+            leadSpot.set(
+              THREE.MathUtils.clamp(targetMate.position.x + 4.8, -46, 48),
+              0,
+              THREE.MathUtils.clamp(targetMate.position.z + targetMate.velocity.z * 0.35, -29, 29)
+            );
+          }
 
           const isPartnerAlreadyControlling =
             this.isCoopActive &&
@@ -1838,15 +2096,40 @@ export class Game {
             else this.setControlledPlayer(targetMate);
           }
         }
-        p.kickAnimTimer = 0.25;
-        this.ball.kick(dir, 22.0, 4.2, 0.35 * p.curveStat, p.id, 'HOME');
-        this.ball.isShot = false;
-        this.ball.isKnuckleShot = false;
-        this.audio.playKick(0.75);
-        this.commentary.announce(`${p.starName} 날카로운 스루패스를 찔러줍니다!`, 'low');
+
+        const toSpot = leadSpot.clone().sub(p.position).setY(0);
+        const dist = Math.max(7.5, toSpot.length());
+        const dir = toSpot.normalize();
+
+        // Ballistic loft calculation so ball peaks at ~2.8m-4.6m and descends right into the Drop-Zone Ring at ~1.68m header height!
+        const loftY = THREE.MathUtils.clamp(9.6 + dist * 0.125, 10.0, 13.8);
+        const g = 21.5;
+        const disc = Math.max(4, loftY * loftY - 2 * g * 1.25);
+        const tStrike = (loftY + Math.sqrt(disc)) / g;
+        const rawSpeed = THREE.MathUtils.clamp(
+          dist / (tStrike * 0.92 * this.ball.getConfig().speedFactor),
+          9.5,
+          25.5
+        );
+        const curveSpin =
+          (p.position.z > 5 ? 0.38 : p.position.z < -5 ? -0.38 : 0.18) * p.curveStat;
+
+        p.kickAnimTimer = 0.28;
+        this.ball.kick(dir, rawSpeed, loftY, curveSpin, p.id, 'HOME', 'LOFTED');
+        this.ball.spawnImpactBurst(this.ball.position, 0xfbbf24, 1.45);
+        this.stadium.spawnParticles(this.ball.position, 'LOFT', 14);
+        this.audio.playLoftedPass();
+
+        if (isWingCross) {
+          this.commentary.announce(`${p.starName} 골문 앞으로 높게 크로스를 올립니다! 헤딩 슛 찬스!!`, 'normal');
+        } else {
+          this.commentary.announce(`${p.starName} 수비 머리 위를 넘기는 정교한 높은 로빙 패스!`, 'low');
+        }
       }
     } else {
-      input.triggerShootWithPower = null;
+      if (!isBallAirborne) {
+        input.triggerShootWithPower = null;
+      }
       input.triggerPass = false;
       input.triggerThrough = false;
     }
@@ -1866,16 +2149,25 @@ export class Game {
   private findBestTeammateForPass(
     passer: Player,
     inputDir: THREE.Vector3,
-    isThrough: boolean
+    passStyle: boolean | 'GROUND' | 'LOFTED'
   ): Player | null {
+    const isLofted = passStyle === true || passStyle === 'LOFTED';
     const mates = (passer.team === 'HOME' ? this.homePlayers : this.awayPlayers).filter(
       (m) => m !== passer && !m.isSentOff && m.role !== 'GK'
     );
     if (mates.length === 0) return null;
 
+    const isWingCross =
+      isLofted &&
+      ((passer.team === 'HOME' && passer.position.x > 14) ||
+        (passer.team === 'AWAY' && passer.position.x < -14)) &&
+      Math.abs(passer.position.z) > 10.5;
+
     const desiredDir =
       inputDir.lengthSq() > 0.04
         ? inputDir.clone().normalize()
+        : isWingCross
+        ? new THREE.Vector3(passer.team === 'HOME' ? 0.45 : -0.45, 0, -Math.sign(passer.position.z) * 0.88).normalize()
         : new THREE.Vector3(passer.team === 'HOME' ? 1 : -1, 0, 0);
 
     let best: Player = mates[0];
@@ -1884,16 +2176,21 @@ export class Game {
     for (const m of mates) {
       const toMate = m.position.clone().sub(passer.position);
       const dist = toMate.length();
-      if (dist < 2 || dist > 44) continue;
+      const maxDist = isLofted ? 48 : 38;
+      if (dist < 2 || dist > maxDist) continue;
       toMate.normalize();
       const align = toMate.dot(desiredDir);
-      const forwardBonus = isThrough ? (passer.team === 'HOME' ? m.position.x : -m.position.x) * 0.03 : 0;
+      const forwardProgress = passer.team === 'HOME' ? m.position.x : -m.position.x;
+      const forwardBonus = isLofted ? forwardProgress * 0.038 + (dist > 10 ? 0.35 : -0.2) : 0;
+      const boxBonus =
+        isWingCross && forwardProgress > 28 && Math.abs(m.position.z) < 16 ? 0.85 : 0;
       const isHumanPartner =
         this.isCoopActive &&
         passer.team === 'HOME' &&
         (m === this.controlledPlayer || m === this.controlledPlayer2);
       const partnerBonus = isHumanPartner && align > 0.12 ? 0.78 : 0;
-      const score = align * 2.2 - dist * 0.03 + forwardBonus + partnerBonus;
+      const distPenalty = isLofted ? Math.abs(dist - 22) * 0.018 : dist * 0.034;
+      const score = align * 2.2 - distPenalty + forwardBonus + boxBonus + partnerBonus;
       if (score > bestScore) {
         bestScore = score;
         best = m;
@@ -1903,7 +2200,15 @@ export class Game {
   }
 
   private updatePlayerAI(p: Player, dt: number): void {
-    if (p.slideTimer > 0 || p.fallenTimer > 0 || p.diveTimer > 0 || p.celebrationTimer > 0) return;
+    if (
+      p.slideTimer > 0 ||
+      p.fallenTimer > 0 ||
+      p.diveTimer > 0 ||
+      p.headerTimer > 0 ||
+      p.celebrationTimer > 0
+    ) {
+      return;
+    }
 
     const isAway = p.team === 'AWAY';
     const diff = DIFFICULTY_PROFILES[this.difficulty];
@@ -1976,12 +2281,28 @@ export class Game {
       );
       const passFreq = isAway ? 2.5 * diff.aiPassFreqMult : 2.5;
       if (closestOpp && Math.random() < dt * passFreq) {
-        const mate = this.findBestTeammateForPass(p, toGoal, false);
+        const useLofted = Math.random() < 0.28;
+        const mate = this.findBestTeammateForPass(p, toGoal, useLofted ? 'LOFTED' : 'GROUND');
         if (mate) {
-          const passDir = mate.position.clone().sub(p.position).normalize();
-          p.kickAnimTimer = 0.22;
-          this.ball.kick(passDir, 18.5, 1.2, 0, p.id, p.team);
-          this.audio.playKick(0.55);
+          const toMate = mate.position.clone().sub(p.position).setY(0);
+          const dMate = Math.max(6, toMate.length());
+          const passDir = toMate.normalize();
+          p.kickAnimTimer = 0.24;
+          if (useLofted && dMate > 11) {
+            const loftY = THREE.MathUtils.clamp(9.4 + dMate * 0.12, 9.8, 12.8);
+            const tS = (loftY + Math.sqrt(Math.max(4, loftY * loftY - 53))) / 21.5;
+            const lSpd = THREE.MathUtils.clamp(
+              dMate / (tS * 0.92 * this.ball.getConfig().speedFactor),
+              10,
+              23
+            );
+            this.ball.kick(passDir, lSpd, loftY, 0.2, p.id, p.team, 'LOFTED');
+            this.audio.playLoftedPass();
+          } else {
+            const gSpd = THREE.MathUtils.clamp(16.0 + dMate * 0.35, 17.5, 24.5);
+            this.ball.kick(passDir, gSpd, 0, 0, p.id, p.team, 'GROUND');
+            this.audio.playKick(0.55);
+          }
           return;
         }
       }
@@ -1991,7 +2312,66 @@ export class Game {
       return;
     }
 
-    // 3. Outfield AI without ball
+    // 3. Outfield AI without ball (Smart Aerial Drop-Zone Positioning & AI Headers)
+    const chaseTargetPos =
+      this.ball.ownerId === null && this.ball.hasAerialDropTarget
+        ? this.ball.predictedLandingPos
+        : this.ball.position;
+
+    // Allow AI players to contest aerial balls with headers if no human controller is right at the ball
+    if (
+      this.ball.ownerId === null &&
+      this.ball.flightElapsed > 0.42 &&
+      this.ball.position.y >= 1.35 &&
+      this.ball.position.y <= 3.35
+    ) {
+      const hDist = Math.hypot(p.position.x - this.ball.position.x, p.position.z - this.ball.position.z);
+      const p1Dist = this.controlledPlayer
+        ? Math.hypot(
+            this.controlledPlayer.position.x - this.ball.position.x,
+            this.controlledPlayer.position.z - this.ball.position.z
+          )
+        : 99;
+      const p2Dist =
+        this.isCoopActive && this.controlledPlayer2
+          ? Math.hypot(
+              this.controlledPlayer2.position.x - this.ball.position.x,
+              this.controlledPlayer2.position.z - this.ball.position.z
+            )
+          : 99;
+      const humanHasPriority = p1Dist < 3.3 || p2Dist < 3.3;
+
+      if (hDist < 1.55 && !humanHasPriority && p.id !== this.ball.lastKickerId) {
+        if (isAway) {
+          const attackGoalX = -Stadium.HALF_LENGTH;
+          const distGoal = Math.abs(this.ball.position.x - attackGoalX);
+          if (distGoal < 22) {
+            const hDir = new THREE.Vector3(
+              attackGoalX - this.ball.position.x,
+              0,
+              (Math.random() - 0.5) * 5 - this.ball.position.z
+            ).normalize();
+            p.triggerHeaderAction(this.ball.position, hDir);
+            this.ball.kick(hDir, 23 * diff.aiShootSpeedMult, 1.8, 0, p.id, 'AWAY', 'NONE');
+            this.ball.isShot = true;
+            this.ball.isHeaderShot = true;
+            this.ball.spawnImpactBurst(this.ball.position, 0xff4081, 1.5);
+            this.audio.playHeaderHit(false);
+            this.commentary.announce(`${p.starName} 위협적인 공중볼 헤딩 슛!`, 'normal');
+            return;
+          } else if (this.ball.position.x > 26 && Math.random() < 0.45 * diff.aiStealMult) {
+            // Away defender defensive header clearance
+            const clearDir = new THREE.Vector3(-1, 0, (Math.random() - 0.5) * 0.9).normalize();
+            p.triggerHeaderAction(this.ball.position, clearDir);
+            this.ball.kick(clearDir, 19, 6.8, 0, p.id, 'AWAY', 'LOFTED');
+            this.audio.playHeaderHit(false);
+            this.commentary.announce(`수비수 ${p.starName} 높이 점프해 머리로 걷어냅니다!`, 'low');
+            return;
+          }
+        }
+      }
+    }
+
     const teamPlayers = (p.team === 'HOME' ? this.homePlayers : this.awayPlayers).filter(
       (m) => !m.isSentOff && m.role !== 'GK'
     );
@@ -2000,7 +2380,7 @@ export class Game {
     let minBallDist = Infinity;
     for (const m of teamPlayers) {
       if (m.isControlled) continue;
-      const d = m.position.distanceTo(this.ball.position);
+      const d = Math.hypot(m.position.x - chaseTargetPos.x, m.position.z - chaseTargetPos.z);
       if (d < minBallDist) {
         minBallDist = d;
         closestChaser = m;
@@ -2008,7 +2388,7 @@ export class Game {
     }
 
     if (p === closestChaser && (p.team === 'AWAY' || this.ball.ownerId === null)) {
-      const toBall = this.ball.position.clone().sub(p.position);
+      const toBall = chaseTargetPos.clone().sub(p.position);
       toBall.y = 0;
       const dist = toBall.length();
       if (dist > 0.5) {
@@ -2265,13 +2645,68 @@ export class Game {
 
     this.ball.updateTrajectoryGuide(this.ball.position, dir, speed, loft, spin, true);
 
+    // 1) High Pass / Lofted Cross into the Box (for Corner Kicks & Free Kicks -> Header Opportunity!)
+    const userHighCross =
+      isUserKicker &&
+      this.gameMode !== 'FREE_KICK_CHALLENGE' &&
+      (this.controls.triggerThrough || this.controls.p2.triggerThrough);
+    const aiCornerCross =
+      !isUserKicker && this.aiSetPieceTimer <= 0 && this.matchState === 'CORNER_KICK_SETUP';
+
+    if ((userHighCross || aiCornerCross) && this.setPieceKicker) {
+      this.controls.triggerThrough = false;
+      this.controls.p2.triggerThrough = false;
+
+      const mate = this.findBestTeammateForPass(this.setPieceKicker, dir, 'LOFTED');
+      const boxDefaultX = this.setPieceTeam === 'HOME' ? 43.2 : -43.2;
+      const targetSpot = mate
+        ? new THREE.Vector3(
+            THREE.MathUtils.clamp(mate.position.x + (this.setPieceTeam === 'HOME' ? 1.5 : -1.5), -47, 47),
+            0,
+            THREE.MathUtils.clamp(mate.position.z, -12, 12)
+          )
+        : new THREE.Vector3(boxDefaultX, 0, 0);
+
+      const toSpot = targetSpot.clone().sub(this.ball.position).setY(0);
+      const dist = Math.max(8, toSpot.length());
+      const crossDir = toSpot.normalize();
+      const crossLoft = THREE.MathUtils.clamp(10.6 + dist * 0.11, 11.2, 14.2);
+      const g = 21.5;
+      const tStrike = (crossLoft + Math.sqrt(Math.max(4, crossLoft * crossLoft - 2 * g * 1.25))) / g;
+      const crossSpd = THREE.MathUtils.clamp(
+        dist / (tStrike * 0.92 * this.ball.getConfig().speedFactor),
+        10.5,
+        25.0
+      );
+      const crossSpin = this.controls.setPieceSpin * 0.85;
+
+      this.setPieceKicker.kickAnimTimer = 0.3;
+      this.ball.updateTrajectoryGuide(this.ball.position, dir, 0, 0, 0, false);
+      this.ball.kick(crossDir, crossSpd, crossLoft, crossSpin, this.setPieceKicker.id, this.setPieceTeam, 'LOFTED');
+      this.ball.spawnImpactBurst(this.ball.position, 0xfbbf24, 1.5);
+      this.stadium.spawnParticles(this.ball.position, 'LOFT', 14);
+      this.audio.playLoftedPass();
+
+      if (isUserKicker && mate) {
+        this.setControlledPlayer(mate);
+      }
+      this.commentary.announce(
+        `${this.setPieceKicker.starName} 골문 앞으로 자로 잰 듯한 높은 크로스!! 헤딩 찬스입니다!`,
+        'high'
+      );
+      this.hideSetPiecePanel();
+      this.matchState = 'PLAYING';
+      return;
+    }
+
+    // 2) Direct Set-Piece Shot (Curved / Knuckle / Chip)
     const shouldFireShot =
       (isUserKicker &&
         (this.controls.triggerShootWithPower !== null ||
-          this.controls.triggerThrough ||
+          (this.gameMode === 'FREE_KICK_CHALLENGE' &&
+            (this.controls.triggerThrough || this.controls.p2.triggerThrough)) ||
           this.controls.triggerSkillOrTactics ||
           this.controls.p2.triggerShootWithPower !== null ||
-          this.controls.p2.triggerThrough ||
           this.controls.p2.triggerSkillOrTactics)) ||
       (!isUserKicker && this.aiSetPieceTimer <= 0);
 
@@ -2306,9 +2741,10 @@ export class Game {
       }
 
       this.ball.updateTrajectoryGuide(this.ball.position, dir, 0, 0, 0, false);
-      this.ball.kick(dir, finalSpeed, finalLoft, finalSpin, this.setPieceKicker?.id || null, this.setPieceTeam);
+      this.ball.kick(dir, finalSpeed, finalLoft, finalSpin, this.setPieceKicker?.id || null, this.setPieceTeam, 'NONE');
       this.ball.isShot = true;
       this.ball.isKnuckleShot = isKnuckle;
+      this.stadium.spawnParticles(this.ball.position, 'GRASS', 12);
       this.audio.playKick(0.95);
 
       if (isKnuckle) {
@@ -2323,17 +2759,18 @@ export class Game {
       return;
     }
 
+    // 3) Ground Set-Piece Pass (짧은 땅볼 패스)
     const p1Pass = this.controls.triggerPass;
     const p2Pass = this.controls.p2.triggerPass;
     if (isUserKicker && (p1Pass || p2Pass) && this.setPieceKicker) {
       this.controls.triggerPass = false;
       this.controls.p2.triggerPass = false;
-      const mate = this.findBestTeammateForPass(this.setPieceKicker, dir, false);
-      const passDir = mate ? mate.position.clone().sub(this.ball.position).normalize() : dir;
+      const mate = this.findBestTeammateForPass(this.setPieceKicker, dir, 'GROUND');
+      const passDir = mate ? mate.position.clone().sub(this.ball.position).setY(0).normalize() : dir;
+      this.setPieceKicker.kickAnimTimer = 0.24;
       this.ball.updateTrajectoryGuide(this.ball.position, dir, 0, 0, 0, false);
-      this.ball.kick(passDir, 18.0, 1.0, 0, this.setPieceKicker.id, this.setPieceTeam);
-      this.ball.isShot = false;
-      this.ball.isKnuckleShot = false;
+      this.ball.kick(passDir, 19.5, 0, 0, this.setPieceKicker.id, this.setPieceTeam, 'GROUND');
+      this.ball.spawnImpactBurst(this.ball.position, 0x00e5ff, 1.15);
       this.audio.playKick(0.55);
       if (mate) this.setControlledPlayer(mate);
       this.hideSetPiecePanel();
@@ -2677,21 +3114,26 @@ export class Game {
           });
         }
 
+        const wasHeaderGoal = this.ball.isHeaderShot;
         this.matchState = 'GOAL_CELEBRATION';
         this.stateTimer = 3.2;
         this.ball.velocity.multiplyScalar(0.25);
-        this.stadium.triggerGoalCrowdCelebration();
+        this.stadium.triggerGoalCrowdCelebration(goalX);
         this.audio.playGoalCheer();
         this.audio.playWhistle('long');
 
         this.showBanner(
-          `⚽ GOAL!! (${this.homeScore} - ${this.awayScore})`,
-          `${scorerName} — ${celebLabels[celebType]}`,
+          wasHeaderGoal
+            ? `💥 HEADER GOAL!! (${this.homeScore} - ${this.awayScore})`
+            : `⚽ GOAL!! (${this.homeScore} - ${this.awayScore})`,
+          `${scorerName}${wasHeaderGoal ? ' [환상적인 헤딩 득점!]' : ''} — ${celebLabels[celebType]}`,
           'banner-goal',
           3.1
         );
         this.commentary.announce(
-          `골인!! ${scorer?.starName || ''} 선수 득점 후 ${celebLabels[celebType]} 경기장이 열광합니다!`,
+          wasHeaderGoal
+            ? `원더골입니다!! ${scorer?.starName || ''} 선수의 그림 같은 헤딩 골이 골망을 뒤흔듭니다!!`
+            : `골인!! ${scorer?.starName || ''} 선수 득점 후 ${celebLabels[celebType]} 경기장이 열광합니다!`,
           'high'
         );
         this.updateScoreboardHUD();
@@ -3007,6 +3449,8 @@ export class Game {
         diveZ: p.diveDirZ,
         skillT: Number(p.skillTimer.toFixed(2)),
         celebT: Number(p.celebrationTimer.toFixed(2)),
+        headT: Number(p.headerTimer.toFixed(2)),
+        headType: p.headerType,
         num: p.shirtNumber,
         name: p.starName
       }))
@@ -3079,6 +3523,8 @@ export class Game {
       p.diveDirZ = ps.diveZ;
       p.skillTimer = ps.skillT;
       p.celebrationTimer = ps.celebT;
+      if (ps.headT !== undefined) p.headerTimer = ps.headT;
+      if (ps.headType) p.headerType = ps.headType;
       if (ps.slot === 'P1') this.controlledPlayer = p;
       if (ps.slot === 'P2') this.controlledPlayer2 = p;
     }

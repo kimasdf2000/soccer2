@@ -3,6 +3,7 @@ import {
   ControllerSlot,
   DifficultyLevel,
   GameMode,
+  HeaderStyle,
   MatchState,
   TacticalStance,
   WorldCupBallId
@@ -43,6 +44,8 @@ export interface CoopPlayerSnap {
   diveZ: number;
   skillT: number;
   celebT: number;
+  headT?: number;
+  headType?: HeaderStyle;
   num: number;
   name: string;
 }
